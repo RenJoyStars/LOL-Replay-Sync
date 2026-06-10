@@ -147,6 +147,23 @@ def verify_token(token):
 # API 接口
 # ============================
 
+# ===== 防止暴力破解 =====
+from collections import defaultdict
+rate_limits = defaultdict(list)  # ip -> [timestamps]
+RATE_LIMIT = 8  # 每分钟最多尝试次数
+RATE_WINDOW = 60  # 统计窗口（秒）
+
+def check_rate_limit(ip):
+    """检查 IP 是否超限，超限则返回剩余等待秒数，否则返回 0"""
+    now = time.time()
+    rate_limits[ip] = [t for t in rate_limits[ip] if now - t < RATE_WINDOW]
+    if len(rate_limits[ip]) >= RATE_LIMIT:
+        wait = int(RATE_WINDOW - (now - rate_limits[ip][0]))
+        return max(wait, 1)
+    rate_limits[ip].append(now)
+    return 0
+
+
 @app.route("/captcha/config", methods=["GET"])
 def captcha_config():
     """返回验证码配置（仅返回 AppID，不返回密钥）"""
