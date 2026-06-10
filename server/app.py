@@ -18,7 +18,9 @@ import os
 import hashlib
 import secrets
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
+from collections import defaultdict
+import time
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -133,6 +135,9 @@ def register():
     用户注册
     请求体: {"username": "xxx", "password": "xxx"}
     """
+    wait = check_rate_limit(request.remote_addr)
+    if wait > 0:
+        return jsonify({"error": f"操作过于频繁，请 {wait} 秒后再试"}), 429
     data = request.get_json()
     if not data:
         return jsonify({"error": "请提供用户名和密码"}), 400

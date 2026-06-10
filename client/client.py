@@ -1453,6 +1453,23 @@ class LoginWindow(QWidget):
 # ============================
 # 🖥 主窗口
 # ============================
+def rich_tooltip(widget, text):
+    """设置带立即显示的悬浮提示（无延迟）"""
+    widget.setToolTip(text)
+    try:
+        widget.setToolTipDuration(10000)
+    except:
+        pass
+    original_enter = widget.enterEvent
+    def on_enter(event):
+        from PySide6.QtWidgets import QToolTip
+        from PySide6.QtCore import QPoint
+        QToolTip.showText(widget.mapToGlobal(QPoint(0, widget.height() + 2)), text, widget)
+        if original_enter:
+            original_enter(event)
+    widget.enterEvent = on_enter
+
+
 class MainWindow(QWidget):
     """登录后的主界面"""
     # 退出时回调，由 main() 设置
