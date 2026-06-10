@@ -2020,11 +2020,24 @@ class MainWindow(QWidget):
             title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2d3748; padding: 8px;")
             top.addWidget(title)
             top.addStretch()
+            
+            batch_del = QPushButton("删除选中")
+            batch_del.setStyleSheet("""QPushButton { background-color: #f56565; color: white; border: none;
+                border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
+                QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
+            batch_del.setEnabled(False)
+            sel_all = QPushButton("全选")
+            sel_all.setStyleSheet("""QPushButton { background-color: #4299e1; color: white; border: none;
+                border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }""")
+            top.addWidget(batch_del)
+            top.addSpacing(6)
+            top.addWidget(sel_all)
+            
+            # 一键下载按钮
             batch_dl = QPushButton("一键下载")
             batch_dl.setStyleSheet("""QPushButton { background-color: #48bb78; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
                 QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
-            batch_dl.setEnabled(len(fnames) > 0)
 
             def do_batch_download():
                 if not hasattr(self, 'current_folder') or not self.current_folder:
@@ -2050,21 +2063,24 @@ class MainWindow(QWidget):
                 self.show_file_manager()
 
             batch_dl.clicked.connect(do_batch_download)
-
-            batch_del = QPushButton("删除选中")
-            batch_del.setStyleSheet("""QPushButton { background-color: #f56565; color: white; border: none;
-                border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
-                QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
-            batch_del.setEnabled(False)
-            sel_all = QPushButton("全选")
-            sel_all.setStyleSheet("""QPushButton { background-color: #4299e1; color: white; border: none;
-                border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }""")
+            batch_dl.setEnabled(True)  # temporarily, will be refined after fnames
+            
+            # Also move fnames/local_set extraction before top bar is rendered
             top.addWidget(batch_dl)
             top.addSpacing(6)
-            top.addWidget(batch_del)
-            top.addSpacing(6)
-            top.addWidget(sel_all)
             layout.addLayout(top)
+
+            # Move uploaded fetch and local_set computation to right here
+            uploaded = ServerAPI.list_uploaded_files(self.token)
+            fnames = sorted([f["filename"] for f in uploaded], reverse=True)
+            finfo = {f["filename"]: f for f in uploaded}
+            local_set = set()
+            if hasattr(self, 'current_folder') and self.current_folder and os.path.isdir(self.current_folder):
+                for f in os.listdir(self.current_folder):
+                    if f.lower().endswith(".rolf") or f.lower().endswith(".rofl"):
+                        local_set.add(f)
+            batch_dl.setEnabled(len(fnames) > 0)
+
 
             file_list = QListWidget()
             file_list.setStyleSheet("""QListWidget { border: 1px solid #e2e8f0; border-radius: 8px;
@@ -2074,15 +2090,6 @@ class MainWindow(QWidget):
             file_list.setSelectionMode(QAbstractItemView.NoSelection)
             file_list.setFocusPolicy(Qt.NoFocus)
             layout.addWidget(file_list, 1)
-
-            uploaded = ServerAPI.list_uploaded_files(self.token)
-            fnames = sorted([f["filename"] for f in uploaded], reverse=True)
-            finfo = {f["filename"]: f for f in uploaded}
-            local_set = set()
-            if hasattr(self, 'current_folder') and self.current_folder and os.path.isdir(self.current_folder):
-                for f in os.listdir(self.current_folder):
-                    if f.lower().endswith(".rolf") or f.lower().endswith(".rofl"):
-                        local_set.add(f)
 
             checked = [False] * len(fnames)
             sel_all.setEnabled(len(fnames) > 0)
