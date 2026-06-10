@@ -1447,12 +1447,12 @@ class LoginWindow(QWidget):
             thr.start()
             browser.setUrl(QUrl("http://127.0.0.1:%d" % port))
             cap_dlg.show()
-
-            if not ev.wait(timeout=120):
-                QMessageBox.warning(self, "超时", "验证超时")
-                srv.shutdown()
-                cap_dlg.close()
-                return
+            # 非阻塞等待：循环处理事件直到验证完成
+            cap_dlg.raise_()
+            while not ev.is_set():
+                QApplication.processEvents()
+                QApplication.processEvents()
+                QTimer.singleShot(50, lambda: None)
             srv.shutdown()
             cap_dlg.close()
             ticket = result["ticket"]
@@ -1558,17 +1558,17 @@ class LoginWindow(QWidget):
             thr.start()
             browser.setUrl(QUrl("http://127.0.0.1:%d" % port))
             cap_dlg.show()
-
-            if not ev_.wait(timeout=120):
-                QMessageBox.warning(self, "超时", "验证超时")
-                srv.shutdown()
-                cap_dlg.close()
-                return
+            while not ev_.is_set():
+                QApplication.processEvents()
+                QApplication.processEvents()
+                QTimer.singleShot(50, lambda: None)
             srv.shutdown()
             cap_dlg.close()
             ticket = result_["ticket"]
             randstr = result_["randstr"]
 
+        self.status_label.setStyleSheet("color: blue;")
+        self.status_label.setText("正在注册...")
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在注册...")
         self.login_btn.setEnabled(False)
