@@ -1737,6 +1737,8 @@ class MainWindow(QWidget):
         self.start_btn.clicked.connect(self.toggle_sync)
         content_layout.addWidget(self.start_btn)
 
+        content_layout.addSpacing(16)
+
         # ===== 日志区域 =====
         log_header = QHBoxLayout()
         log_title = QLabel("上传日志")
@@ -2344,7 +2346,10 @@ class MainWindow(QWidget):
                         btn_l.setContentsMargins(0, 0, 0, 0)
                         for lb, bg, hov in [("另存为","#48bb78","#38a169"),("删除","#f56565","#e53e3e"),("重命名","#4299e1","#3182ce"),("回放","#805ad5","#6b46c1")]:
                             btn = QPushButton(lb)
-                            btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}")
+                            if lb == "回放":
+                                btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}QPushButton:disabled{{background:#a0aec0;color:#e2e8f0;}}")
+                            else:
+                                btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}")
                             btn.setFixedHeight(26)
                             cb = [lambda *a,fn=fname: save_file(fn,self.token,dialog),
                                   lambda *a,fn=fname,r=row: del_file(fn,r,self.token,dialog),
@@ -2390,7 +2395,13 @@ class MainWindow(QWidget):
                      lambda *a, fn=fname, m=meta: play_replay(fn, m, self)),
                 ]:
                     btn = QPushButton(label)
-                    btn.setStyleSheet(f"""QPushButton {{ background-color: {color}; color: white; border: none;
+                    if label == "回放":
+                        btn.setStyleSheet(f"""QPushButton {{ background-color: {color}; color: white; border: none;
+                        border-radius: 4px; padding: 2px 10px; font-size: 11px; }}
+                        QPushButton:hover {{ background-color: {hover}; }}
+                        QPushButton:disabled {{ background-color: #a0aec0; color: #e2e8f0; }}""")
+                    else:
+                        btn.setStyleSheet(f"""QPushButton {{ background-color: {color}; color: white; border: none;
                         border-radius: 4px; padding: 2px 10px; font-size: 11px; }}
                         QPushButton:hover {{ background-color: {hover}; }}""")
                     btn.setFixedHeight(26)
