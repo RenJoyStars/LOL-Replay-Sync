@@ -29,6 +29,7 @@ jobs:
             --enable-plugin=pyside6 --output-dir=dist `
             --product-name="英雄联盟对局文件助手" `
             --file-version="1.0.0" `
+            --windows-icon-from-ico=client\icon.ico `
             --assume-yes-for-downloads `
             client\client.py
 
