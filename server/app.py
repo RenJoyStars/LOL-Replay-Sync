@@ -147,6 +147,11 @@ def verify_token(token):
 # API 接口
 # ============================
 
+@app.route("/captcha/config", methods=["GET"])
+def captcha_config():
+    """返回验证码配置（仅返回 AppID，不返回密钥）"""
+    return jsonify({"aid": CAPTCHA_AID, "enabled": bool(CAPTCHA_SECRET_KEY)})
+
 @app.route("/")
 def index():
     """服务器主页，查看是否在运行"""
