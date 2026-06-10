@@ -66,7 +66,7 @@ def load_config():
             return data
         except:
             pass
-    return {"token": "", "username": "", "watch_folder": ""}
+    return {"token": "", "username": "", "watch_folder": "", "lol_path": ""}
 
 def save_config(config):
     """保存设置到本地"""
@@ -220,6 +220,43 @@ CHAMPION_CN = {
 def champ_cn(name):
     """英雄英文名转中文"""
     return CHAMPION_CN.get(name, name)
+
+
+def detect_lol_version(lol_path):
+    """检测 LOL 客户端版本号"""
+    if not lol_path or not os.path.isdir(lol_path):
+        return None
+    try:
+        if sys.platform == "darwin":
+            # Mac: check Info.plist
+            for sub in ["", "LeagueClient.app", "../LeagueClient.app"]:
+                p = os.path.abspath(os.path.join(lol_path, sub, "Contents", "Info.plist"))
+                if os.path.exists(p):
+                    import plistlib
+                    with open(p, "rb") as f:
+                        plist = plistlib.load(f)
+                    ver = plist.get("CFBundleShortVersionString")
+                    if ver:
+                        return ver.split(" ")[0]
+        elif sys.platform == "win32":
+            import subprocess
+            for exe in ["LeagueClient.exe"]:
+                exe_path = os.path.join(lol_path, exe)
+                if os.path.exists(exe_path):
+                    result = subprocess.run(
+                        ["powershell", "-Command",
+                         f"(Get-Item '{exe_path}').VersionInfo.ProductVersion"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.returncode == 0:
+                        ver = result.stdout.strip()
+                        if ver:
+                            return ver
+    except Exception:
+        pass
+    return None
+
+
 # ============================
 # 应用图标（Base64 嵌入，无需外部文件）
 # ============================
@@ -1427,6 +1464,9 @@ class MainWindow(QWidget):
         self.username = username
         self.nickname = username  # 默认显示用户名
         self.config = load_config()
+        self.lol_path = self.config.get("lol_path", "")
+        self.lol_version = None
+        self.lol_version_display = None
 
         self.setWindowTitle(f"英雄联盟对局文件助手 - {username}")
         self.setFixedSize(620, 520)
@@ -1445,6 +1485,18 @@ class MainWindow(QWidget):
             self.add_log(f"使用上次的文件夹：{saved_folder}")
         else:
             self.select_folder()
+
+        # 恢复 LOL 客户端路径
+        saved_lol = self.config.get("lol_path", "")
+        if saved_lol and os.path.isdir(saved_lol):
+            self.lol_path = saved_lol
+            ver = detect_lol_version(saved_lol)
+            if ver:
+                self.lol_version = ver
+                if hasattr(self, 'lol_display'):
+                    self.lol_display.setText(saved_lol)
+                    self.lol_ver_label.setText(f"✅ 检测到版本：{ver}")
+                    self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px;")
         
         # 系统托盘
         self.setup_tray()
@@ -1791,6 +1843,30 @@ class MainWindow(QWidget):
             self.config["watch_folder"] = folder
             save_config(self.config)
 
+    def select_lol_folder(self):
+        """选择 LOL 客户端目录，检测版本"""
+        folder = QFileDialog.getExistingDirectory(
+            self, "选择英雄联盟客户端所在目录"
+        )
+        if not folder:
+            return
+        self.lol_path = folder
+        self.config["lol_path"] = folder
+        save_config(self.config)
+        ver = detect_lol_version(folder)
+        if ver:
+            self.lol_version = ver
+            self.lol_display.setText(folder)
+            self.lol_ver_label.setText(f"✅ 检测到版本：{ver}")
+            self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px;")
+            self.add_log(f"LOL 客户端版本：{ver}")
+        else:
+            self.lol_version = None
+            self.lol_display.setText(folder)
+            self.lol_ver_label.setText("⚠️ 未检测到版本信息")
+            self.lol_ver_label.setStyleSheet("color: #e53e3e; font-size: 11px; padding-left: 2px;")
+            self.add_log(f"LOL 目录已选，但读不到版本：{folder}")
+
     def toggle_sync(self):
         """开始同步 — 对比本地和云端，上传缺失文件"""
         if not hasattr(self, 'current_folder') or not self.current_folder:
@@ -2005,7 +2081,7 @@ class MainWindow(QWidget):
         try:
             from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
                 QListWidgetItem, QPushButton, QLabel, QMessageBox, QFileDialog, QWidget,
-                QAbstractItemView, QInputDialog, QCheckBox)
+                QAbstractItemView, QInputDialog, QCheckBox, QComboBox)
 
             dialog = QDialog()
             dialog.setWindowTitle("云端管理")
@@ -2243,6 +2319,52 @@ class MainWindow(QWidget):
                 item.setSizeHint(QSize(700, 125))
                 file_list.addItem(item)
                 file_list.setItemWidget(item, w)
+
+            # 筛选功能
+            def apply_filter():
+                mode = self.mode_filter.currentText()
+                ver = self.ver_filter.currentText()
+                for i in range(file_list.count()):
+                    item = file_list.item(i)
+                    fname = fnames[i] if i < len(fnames) else ""
+                    fp = os.path.join(self.current_folder, fname) if hasattr(self, "current_folder") and self.current_folder else ""
+                    m = parse_rolf_metadata(fp) if fp and os.path.exists(fp) else None
+                    show = True
+                    if m:
+                        if mode != "全部模式" and m.get("game_mode") != mode:
+                            show = False
+                        if ver != "全部版本" and m.get("game_version") != ver:
+                            show = False
+                    else:
+                        if mode != "全部模式" or ver != "全部版本":
+                            show = False
+                    item.setHidden(not show)
+            self.mode_filter.currentTextChanged.connect(lambda _: apply_filter())
+            self.ver_filter.currentTextChanged.connect(lambda _: apply_filter())
+
+
+            def play_replay(fn, meta, main_win):
+                """调用 LOL 客户端播放回放"""
+                if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
+                    QMessageBox.warning(dialog, "提示", "请先在主界面设置LOL客户端目录")
+                    return
+                import tempfile
+                tmp_dir = tempfile.gettempdir()
+                local_path = os.path.join(tmp_dir, fn)
+                ok, _ = ServerAPI.download_file(fn, main_win.token, local_path)
+                if not ok:
+                    QMessageBox.warning(dialog, "失败", "下载文件失败")
+                    return
+                try:
+                    if sys.platform == "darwin":
+                        import subprocess
+                        subprocess.Popen(["open", local_path])
+                    elif sys.platform == "win32":
+                        exe_path = os.path.join(main_win.lol_path, "LeagueClient.exe")
+                        import subprocess
+                        subprocess.Popen([exe_path, local_path])
+                except Exception as e:
+                    QMessageBox.warning(dialog, "失败", "无法打开回放：{}".format(e))
 
             def save_file(fn, tok, dlg):
                 sp, _ = QFileDialog.getSaveFileName(dlg, "保存文件", fn, "LOL Replay (*.rofl);;所有文件 (*)")
