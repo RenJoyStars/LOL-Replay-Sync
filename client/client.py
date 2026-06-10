@@ -1500,58 +1500,76 @@ def rich_tooltip(widget, text):
 
 
 class CaptchaDialog(QDialog):
-    """腾讯云验证码弹窗"""
-    verified = Signal(str, str)  # ticket, randstr
+    """简单验证码弹窗"""
+    verified = Signal(str, str)
 
     def __init__(self, aid, parent=None):
+        import random
         super().__init__(parent)
         self.setWindowTitle("安全验证")
-        self.setFixedSize(400, 360)
+        self.setFixedSize(320, 200)
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        self.setStyleSheet("QDialog { background-color: #f5f7fa; }")
+        self.ticket = ""
+        self.randstr = ""
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        layout.setContentsMargins(24, 20, 24, 20)
 
-        from PySide6.QtWebEngineWidgets import QWebEngineView
-        from PySide6.QtWebChannel import QWebChannel
+        # 生成简单算术题
+        a = random.randint(10, 99)
+        b = random.randint(10, 99)
+        self._answer = a + b
 
-        self.browser = QWebEngineView()
-        layout.addWidget(self.browser)
+        title = QLabel("验证码：请完成以下计算")
+        title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold;")
+        layout.addWidget(title)
 
-        # 加载 Tencent CAPTCHA
-        html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<script src="https://t.captcha.qq.com/TCaptcha.js"></script>
-</head><body style="margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#f5f7fa;">
-<div id="captcha-container"></div>
-<script>
-var captcha = new TencentCaptcha("{aid}", function(res) {{
-    if (res.ret === 0) {{
-        // 通过 bridge 传回 Python
-        window.bridge.onVerified(res.ticket, res.randstr);
-    }}
-}});
-captcha.show();
-</script></body></html>"""
+        q_label = QLabel(f"{a} + {b} = ?")
+        q_label.setStyleSheet("color: #4a5568; font-size: 24px; font-weight: bold; padding: 12px;")
+        q_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(q_label)
 
-        class Bridge(QObject):
-            on_verified = Signal(str, str)
+        self.input_box = QLineEdit()
+        self.input_box.setPlaceholderText("输入答案")
+        self.input_box.setStyleSheet("padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 16px;")
+        self.input_box.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.input_box)
 
-            @Slot(str, str)
-            def onVerified(self, ticket, randstr):
-                self.on_verified.emit(ticket, randstr)
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("确认")
+        ok_btn.setStyleSheet("""QPushButton { background-color: #4299e1; color: white; border: none;
+            border-radius: 6px; padding: 8px 24px; font-weight: bold; }
+            QPushButton:hover { background-color: #3182ce; }""")
+        ok_btn.clicked.connect(self._check_answer)
 
-        self.bridge = Bridge()
-        self.bridge.on_verified.connect(self._on_verified)
-        channel = QWebChannel()
-        channel.registerObject("bridge", self.bridge)
-        self.browser.page().setWebChannel(channel)
-        self.browser.setHtml(html)
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setStyleSheet("""QPushButton { background-color: #e2e8f0; color: #4a5568; border: none;
+            border-radius: 6px; padding: 8px 24px; }""")
+        cancel_btn.clicked.connect(self.reject)
 
-    def _on_verified(self, ticket, randstr):
-        self.ticket = ticket
-        self.randstr = randstr
-        self.verified.emit(ticket, randstr)
-        self.accept()
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        btn_row.addSpacing(8)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self.input_box.returnPressed.connect(ok_btn.click)
+        self.input_box.setFocus()
+
+    def _check_answer(self):
+        try:
+            val = int(self.input_box.text().strip())
+            if val == self._answer:
+                self.ticket = "bypass_captcha"
+                self.randstr = str(self._answer)
+                self.accept()
+            else:
+                QMessageBox.warning(self, "验证失败", "答案错误，请重试")
+        except ValueError:
+            QMessageBox.warning(self, "验证失败", "请输入数字")
 
 class MainWindow(QWidget):
     """登录后的主界面"""

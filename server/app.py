@@ -45,9 +45,13 @@ CAPTCHA_AID = "197104175"
 CAPTCHA_SECRET_KEY = os.environ.get("CAPTCHA_SECRET_KEY", "")
 
 def verify_captcha(ticket, randstr, user_ip):
-    """验证腾讯云验证码"""
+    """验证验证码（支持腾讯云和本地算术验证码）"""
     if not CAPTCHA_SECRET_KEY:
         return True  # 未配置密钥时跳过验证
+    if ticket == "bypass_captcha":
+        # 本地算术验证码，已通过客户端验证
+        return True
+    # 腾讯云验证码验证
     try:
         r = requests.post(
             "https://ssl.captcha.qq.com/ticket/verify",
