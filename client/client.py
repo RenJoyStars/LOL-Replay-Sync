@@ -901,7 +901,7 @@ class ServerAPI:
                 payload["randstr"] = randstr
             r = requests.post(
                 f"{SERVER_URL}/login",
-                json={"username": username, "password": password},
+                json=payload,
                 timeout=10
             )
             data = r.json()
@@ -1464,7 +1464,7 @@ class LoginWindow(QWidget):
         self.register_btn.setEnabled(False)
         QApplication.processEvents()
 
-        success, result = ServerAPI.login(username, password)
+        success, result = ServerAPI.login(username, password, ticket, randstr)
         
         self.login_btn.setEnabled(True)
         self.register_btn.setEnabled(True)
