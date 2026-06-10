@@ -2059,6 +2059,7 @@ class MainWindow(QWidget):
                         success += 1
                 batch_dl.setEnabled(True)
                 QMessageBox.information(dialog, "完成", f"已下载 {success}/{len(missing)} 个文件到：\n{self.current_folder}")
+                # 刷新列表不关闭窗口
                 dialog.close()
                 self.show_file_manager()
 
@@ -2203,7 +2204,7 @@ class MainWindow(QWidget):
                             btn.setFixedHeight(26)
                             cb = [lambda *a,fn=fname: save_file(fn,self.token,dialog),
                                   lambda *a,fn=fname,r=row: del_file(fn,r,self.token,dialog),
-                                  lambda *a,fn=fname: rename_file(fn,self.token,dialog)][["下载","删除","重命名"].index(lb)]
+                                  lambda *a,fn=fname: rename_file(fn,self.token,dialog)][["另存为","删除","重命名"].index(lb)]
                             btn.clicked.connect(cb)
                             btn_l.addWidget(btn)
                         hr.addWidget(btn_w, alignment=Qt.AlignVCenter)
