@@ -2342,14 +2342,31 @@ class MainWindow(QWidget):
                         btn_l = QHBoxLayout(btn_w)
                         btn_l.setSpacing(4)
                         btn_l.setContentsMargins(0, 0, 0, 0)
-                        for lb, bg, hov in [("另存为","#48bb78","#38a169"),("删除","#f56565","#e53e3e"),("重命名","#4299e1","#3182ce")]:
+                        for lb, bg, hov in [("另存为","#48bb78","#38a169"),("删除","#f56565","#e53e3e"),("重命名","#4299e1","#3182ce"),("回放","#805ad5","#6b46c1")]:
                             btn = QPushButton(lb)
                             btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}")
                             btn.setFixedHeight(26)
                             cb = [lambda *a,fn=fname: save_file(fn,self.token,dialog),
                                   lambda *a,fn=fname,r=row: del_file(fn,r,self.token,dialog),
-                                  lambda *a,fn=fname: rename_file(fn,self.token,dialog)][["另存为","删除","重命名"].index(lb)]
+                                  lambda *a,fn=fname: rename_file(fn,self.token,dialog),
+                                  lambda *a,fn=fname,m=meta: play_replay(fn,m,self)][["另存为","删除","重命名","回放"].index(lb)]
                             btn.clicked.connect(cb)
+                            if lb == "回放":
+                                if meta is None or not meta.get("game_version"):
+                                    btn.setEnabled(False)
+                                    btn.setToolTip("需先下载查看版本信息")
+                                elif hasattr(self, 'lol_version') and self.lol_version:
+                                    fv = meta["game_version"]
+                                    lv = self.lol_version
+                                    major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
+                                    if not major_match:
+                                        btn.setEnabled(False)
+                                        btn.setToolTip("版本不匹配")
+                                    else:
+                                        btn.setToolTip(f"使用 LOL {lv} 播放")
+                                else:
+                                    btn.setEnabled(False)
+                                    btn.setToolTip("请先设置LOL客户端目录")
                             btn_l.addWidget(btn)
                         hr.addWidget(btn_w, alignment=Qt.AlignVCenter)
                         row2.addLayout(hr)
@@ -2369,6 +2386,8 @@ class MainWindow(QWidget):
                      lambda *a, fn=fname, r=row: del_file(fn, r, self.token, dialog)),
                     ("重命名", "#4299e1", "#3182ce",
                      lambda *a, fn=fname: rename_file(fn, self.token, dialog)),
+                    ("回放", "#805ad5", "#6b46c1",
+                     lambda *a, fn=fname, m=meta: play_replay(fn, m, self)),
                 ]:
                     btn = QPushButton(label)
                     btn.setStyleSheet(f"""QPushButton {{ background-color: {color}; color: white; border: none;
@@ -2376,6 +2395,22 @@ class MainWindow(QWidget):
                         QPushButton:hover {{ background-color: {hover}; }}""")
                     btn.setFixedHeight(26)
                     btn.clicked.connect(cb_func)
+                    if label == "回放":
+                        if meta is None or not meta.get("game_version"):
+                            btn.setEnabled(False)
+                            btn.setToolTip("需先下载查看版本信息")
+                        elif hasattr(self, 'lol_version') and self.lol_version:
+                            fv = meta["game_version"]
+                            lv = self.lol_version
+                            major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
+                            if not major_match:
+                                btn.setEnabled(False)
+                                btn.setToolTip(f"版本不匹配")
+                            else:
+                                btn.setToolTip(f"使用 LOL {lv} 播放")
+                        else:
+                            btn.setEnabled(False)
+                            btn.setToolTip("请先设置LOL客户端目录")
                     hr_btns.addWidget(btn)
                     hr_btns.addSpacing(3)
                 # 底部按钮：仅当元数据区域未显示按钮时才添加
