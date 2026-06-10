@@ -1,4 +1,4 @@
-name: 编译 Windows / Mac 版
+name: 编译 Windows 版
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,8 +16,7 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
-      - name: 安装依赖
-        run: pip install PySide6 requests watchdog nuitka
+      - run: pip install PySide6 requests watchdog nuitka
 
       - name: 编译
         run: |
@@ -29,56 +28,7 @@ jobs:
             --assume-yes-for-downloads ^
             client\client.py
 
-      - name: 上传
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: 英雄联盟对局文件助手-Windows
           path: dist/client.exe
-
-  build-macos:
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: 安装依赖
-        run: pip install PySide6 requests watchdog nuitka pillow
-
-      - name: 编译
-        run: |
-          python -m nuitka --standalone --macos-create-app-bundle \
-            --enable-plugin=pyside6 --output-dir=dist \
-            --macos-app-name="英雄联盟对局文件助手" \
-            --macos-app-version="0.2" \
-            --macos-app-icon=client/icon.icns \
-            --assume-yes-for-downloads \
-            client/client.py
-
-      - name: 制作 DMG
-        run: |
-          python3 -c "
-from PIL import Image, ImageDraw
-w, h = 530, 420
-img = Image.new('RGBA', (w, h), (0,0,0,0))
-draw = ImageDraw.Draw(img)
-for y in range(h):
-    r = int(220 - (y/h)*20); g = int(235 - (y/h)*15); b = int(255 - (y/h)*10)
-    draw.line([(0,y),(w-1,y)], fill=(r,g,b,255))
-img.save('dist/dmg_bg.png')
-"
-          mkdir -p dist/dmg_temp/.background
-          cp dist/dmg_bg.png dist/dmg_temp/.background/
-          cp -R dist/client.app dist/dmg_temp/英雄联盟对局文件助手.app
-          ln -s /Applications dist/dmg_temp/Applications
-          chflags hidden dist/dmg_temp/.background
-          hdiutil create -volname "英雄联盟对局文件助手" \
-            -srcfolder dist/dmg_temp \
-            -ov -format UDZO dist/英雄联盟对局文件助手-x86.dmg
-
-      - name: 上传
-        uses: actions/upload-artifact@v4
-        with:
-          name: 英雄联盟对局文件助手-Mac-x86
-          path: dist/英雄联盟对局文件助手-x86.dmg
