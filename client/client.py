@@ -1469,7 +1469,7 @@ class MainWindow(QWidget):
         self.lol_version_display = None
 
         self.setWindowTitle(f"英雄联盟对局文件助手 - {username}")
-        self.setFixedSize(620, 520)
+        self.setFixedSize(620, 640)
         self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowMinimizeButtonHint)
         self.setup_ui()
 
@@ -1609,7 +1609,7 @@ class MainWindow(QWidget):
         folder_card_layout.setContentsMargins(0, 0, 0, 0)
         folder_card_layout.setSpacing(8)
 
-        folder_title = QLabel("定位对局文件夹")
+        folder_title = QLabel("定位游戏对局文件保存位置")
         folder_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
         folder_card_layout.addWidget(folder_title)
 
@@ -1673,7 +1673,7 @@ class MainWindow(QWidget):
         lol_layout.setContentsMargins(0, 0, 0, 0)
         lol_layout.setSpacing(6)
 
-        lol_title = QLabel("定位LOL客户端目录")
+        lol_title = QLabel("定位播放对局文件客户端目录")
         lol_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
         lol_layout.addWidget(lol_title)
 
@@ -1694,6 +1694,17 @@ class MainWindow(QWidget):
         self.lol_ver_label = QLabel("")
         self.lol_ver_label.setStyleSheet("color: #718096; font-size: 11px; padding-left: 2px;")
         lol_layout.addWidget(self.lol_ver_label)
+
+        # LOL 客户端路径提示
+        lol_tip = QLabel("英雄联盟客户端默认安装位置：")
+        lol_tip.setStyleSheet("color: #a0aec0; font-size: 11px; background: transparent; padding-left: 2px;")
+        lol_layout.addWidget(lol_tip)
+        lol_tip2 = QLabel("Windows: C:\\Riot Games\\League of Legends （找 LeagueClient.exe）")
+        lol_tip2.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
+        lol_layout.addWidget(lol_tip2)
+        lol_tip3 = QLabel("Mac: /Applications/League of Legends.app （或你安装的位置）")
+        lol_tip3.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
+        lol_layout.addWidget(lol_tip3)
 
         lol_layout.addSpacing(4)
         content_layout.addWidget(lol_card)
@@ -2367,8 +2378,8 @@ class MainWindow(QWidget):
                     btn.clicked.connect(cb_func)
                     hr_btns.addWidget(btn)
                     hr_btns.addSpacing(3)
-                if not local_ex:
-                    row2.addLayout(hr_btns)
+                # 所有文件都显示按钮（已下载但解析失败的也显示）
+                row2.addLayout(hr_btns)
 
                 wl.addLayout(row2)
 
