@@ -46,28 +46,6 @@ jobs:
       - name: 安装依赖
         run: pip install PySide6 requests watchdog nuitka pillow
 
-      - name: 生成 icon.icns
-        run: python3 -c "
-import base64, io, os
-from PIL import Image
-with open('client/client.py') as f:
-    c = f.read()
-s = c.find('APP_ICON_B64 = \\\"\"\"') + 18
-e = c.find('\\\"\"\"', s)
-b64 = c[s:e].strip().replace(chr(10), '')
-img = Image.open(io.BytesIO(base64.b64decode(b64)))
-os.makedirs('client/AppIcon.iconset', exist_ok=True)
-for px in [16, 32, 64, 128, 256, 512]:
-    r = img.resize((px, px), Image.LANCZOS)
-    r.save(f'client/AppIcon.iconset/icon_{px}x{px}.png')
-    if px < 1024:
-        r2 = img.resize((px*2, px*2), Image.LANCZOS)
-        r2.save(f'client/AppIcon.iconset/icon_{px}x{px}@2x.png')
-os.system('iconutil -c icns client/AppIcon.iconset -o client/icon.icns')
-os.system('rm -rf client/AppIcon.iconset')
-print('icon.icns done')
-"
-
       - name: 编译
         run: |
           python -m nuitka --standalone --macos-create-app-bundle \
@@ -95,10 +73,12 @@ img.save('dist/dmg_bg.png')
           cp -R dist/client.app dist/dmg_temp/英雄联盟对局文件助手.app
           ln -s /Applications dist/dmg_temp/Applications
           chflags hidden dist/dmg_temp/.background
-          hdiutil create -volname "英雄联盟对局文件助手" -srcfolder dist/dmg_temp -ov -format UDZO dist/英雄联盟对局文件助手-x86.dmg
+          hdiutil create -volname "英雄联盟对局文件助手" \
+            -srcfolder dist/dmg_temp \
+            -ov -format UDZO dist/英雄联盟对局文件助手-x86.dmg
 
       - name: 上传
         uses: actions/upload-artifact@v4
         with:
-          name: 英雄联盟对局文件助手-Mac
+          name: 英雄联盟对局文件助手-Mac-x86
           path: dist/英雄联盟对局文件助手-x86.dmg
