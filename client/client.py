@@ -1495,8 +1495,8 @@ class MainWindow(QWidget):
                 self.lol_version = ver
                 if hasattr(self, 'lol_display'):
                     self.lol_display.setText(saved_lol)
-                    self.lol_ver_label.setText(f"✅ 检测到版本：{ver}")
-                    self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px;")
+                    self.lol_ver_label.setText(f"游戏版本: {ver}")
+                    self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
         
         # 系统托盘
         self.setup_tray()
@@ -1691,8 +1691,8 @@ class MainWindow(QWidget):
         lol_row.addWidget(self.lol_btn)
         lol_layout.addLayout(lol_row)
 
-        self.lol_ver_label = QLabel("")
-        self.lol_ver_label.setStyleSheet("color: #718096; font-size: 11px; padding-left: 2px;")
+        self.lol_ver_label = QLabel("游戏版本: 未设置")
+        self.lol_ver_label.setStyleSheet("color: #718096; font-size: 11px; padding-left: 2px; background: transparent;")
         lol_layout.addWidget(self.lol_ver_label)
 
         # LOL 客户端路径提示
@@ -1902,14 +1902,14 @@ class MainWindow(QWidget):
         if ver:
             self.lol_version = ver
             self.lol_display.setText(folder)
-            self.lol_ver_label.setText(f"✅ 检测到版本：{ver}")
-            self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px;")
+            self.lol_ver_label.setText(f"游戏版本: {ver}")
+            self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
             self.add_log(f"LOL 客户端版本：{ver}")
         else:
             self.lol_version = None
             self.lol_display.setText(folder)
-            self.lol_ver_label.setText("⚠️ 未检测到版本信息")
-            self.lol_ver_label.setStyleSheet("color: #e53e3e; font-size: 11px; padding-left: 2px;")
+            self.lol_ver_label.setText("游戏版本: 无法识别")
+            self.lol_ver_label.setStyleSheet("color: #e53e3e; font-size: 11px; padding-left: 2px; background: transparent;")
             self.add_log(f"LOL 目录已选，但读不到版本：{folder}")
 
     def toggle_sync(self):
@@ -2359,18 +2359,19 @@ class MainWindow(QWidget):
                             if lb == "回放":
                                 if meta is None or not meta.get("game_version"):
                                     btn.setEnabled(False)
-                                    btn.setToolTip("需先下载查看版本信息")
+                                    rich_tooltip(btn, "需先下载查看版本信息")
                                 elif hasattr(self, 'lol_version') and self.lol_version:
                                     fv = meta["game_version"]
                                     lv = self.lol_version
                                     major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
                                     if not major_match:
                                         btn.setEnabled(False)
-                                        btn.setToolTip("版本不匹配")
+                                        rich_tooltip(btn, f"版本不匹配")
                                     else:
-                                        btn.setToolTip(f"使用 LOL {lv} 播放")
+                                        rich_tooltip(btn, f"使用 LOL {lv} 播放")
                                 else:
                                     btn.setEnabled(False)
+                                    rich_tooltip(btn, "请先设置LOL客户端目录")
                                     btn.setToolTip("请先设置LOL客户端目录")
                             btn_l.addWidget(btn)
                         hr.addWidget(btn_w, alignment=Qt.AlignVCenter)
@@ -2409,19 +2410,19 @@ class MainWindow(QWidget):
                     if label == "回放":
                         if meta is None or not meta.get("game_version"):
                             btn.setEnabled(False)
-                            btn.setToolTip("需先下载查看版本信息")
+                            rich_tooltip(btn, "需先下载查看版本信息")
                         elif hasattr(self, 'lol_version') and self.lol_version:
                             fv = meta["game_version"]
                             lv = self.lol_version
                             major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
                             if not major_match:
                                 btn.setEnabled(False)
-                                btn.setToolTip(f"版本不匹配")
+                                rich_tooltip(btn, "版本不匹配")
                             else:
-                                btn.setToolTip(f"使用 LOL {lv} 播放")
+                                rich_tooltip(btn, f"使用 LOL {lv} 播放")
                         else:
                             btn.setEnabled(False)
-                            btn.setToolTip("请先设置LOL客户端目录")
+                            rich_tooltip(btn, "请先设置LOL客户端目录")
                     hr_btns.addWidget(btn)
                     hr_btns.addSpacing(3)
                 # 底部按钮：仅当元数据区域未显示按钮时才添加
@@ -2561,6 +2562,17 @@ def main():
     pix = QPixmap()
     pix.loadFromData(base64.b64decode(APP_ICON_B64))
     app.setWindowIcon(QIcon(pix))
+    # 全局 ToolTip 样式（白底黑字，立即显示）
+    app.setStyleSheet("""
+        QToolTip {
+            background-color: white;
+            color: #2d3748;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+    """)
     app.setStyle("Fusion")
     
 
