@@ -1598,10 +1598,23 @@ def rich_tooltip(widget, text):
         widget.setToolTipDuration(10000)
     except:
         pass
+    # 直接设置按钮样式确保提示有白底
     original_enter = widget.enterEvent
     def on_enter(event):
-        from PySide6.QtWidgets import QToolTip
+        from PySide6.QtWidgets import QToolTip, QApplication
         from PySide6.QtCore import QPoint
+        # 确保全局 ToolTip 样式已应用
+        QApplication.instance().setStyleSheet(
+            QApplication.instance().styleSheet() + """
+            QToolTip {
+                background-color: white;
+                color: #2d3748;
+                border: 1px solid #e2e8f0;
+                border-radius: 4px;
+                padding: 4px 8px;
+                font-size: 12px;
+            }
+        """)
         QToolTip.showText(widget.mapToGlobal(QPoint(0, widget.height() + 2)), text, widget)
         if original_enter:
             original_enter(event)
@@ -2790,18 +2803,21 @@ def main():
     pix = QPixmap()
     pix.loadFromData(base64.b64decode(APP_ICON_B64))
     app.setWindowIcon(QIcon(pix))
-    # 全局 ToolTip 样式（白底黑字，立即显示）
-    app.setStyleSheet("""
+    # 全局 ToolTip 样式（白底黑字），在 app 创建后立即设置
+    app.setStyleSheet("* { font-family: system-ui; }")
+    app.setStyle("Fusion")
+    # 单独设置 QToolTip 样式
+    app.setStyleSheet(app.styleSheet() + """
         QToolTip {
-            background-color: white;
+            background-color: #ffffff;
             color: #2d3748;
-            border: 1px solid #e2e8f0;
+            border: 1px solid #cbd5e0;
             border-radius: 4px;
-            padding: 4px 8px;
+            padding: 6px 10px;
             font-size: 12px;
+            font-family: system-ui;
         }
     """)
-    app.setStyle("Fusion")
     
 
     MainWindow._on_logout = show_login
