@@ -1666,6 +1666,38 @@ class MainWindow(QWidget):
         folder_card_layout.addSpacing(4)
         content_layout.addWidget(folder_card)
 
+        # ===== LOL 客户端目录 =====
+        lol_card = QFrame()
+        lol_card.setStyleSheet("background: transparent; border: none;")
+        lol_layout = QVBoxLayout(lol_card)
+        lol_layout.setContentsMargins(0, 0, 0, 0)
+        lol_layout.setSpacing(6)
+
+        lol_title = QLabel("定位LOL客户端目录")
+        lol_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
+        lol_layout.addWidget(lol_title)
+
+        lol_row = QHBoxLayout()
+        self.lol_display = QLabel("尚未选择（回放功能需要）")
+        self.lol_display.setStyleSheet("background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; color: #4a5568; font-size: 13px;")
+        self.lol_display.setWordWrap(True)
+
+        self.lol_btn = QPushButton("浏览...")
+        self.lol_btn.setStyleSheet("""QPushButton { background-color: #edf2f7; color: #4a5568; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 20px; font-size: 13px; font-weight: bold; } QPushButton:hover { background-color: #e2e8f0; }""")
+        self.lol_btn.setFixedHeight(42)
+        self.lol_btn.clicked.connect(self.select_lol_folder)
+
+        lol_row.addWidget(self.lol_display, 1)
+        lol_row.addWidget(self.lol_btn)
+        lol_layout.addLayout(lol_row)
+
+        self.lol_ver_label = QLabel("")
+        self.lol_ver_label.setStyleSheet("color: #718096; font-size: 11px; padding-left: 2px;")
+        lol_layout.addWidget(self.lol_ver_label)
+
+        lol_layout.addSpacing(4)
+        content_layout.addWidget(lol_card)
+
         # ===== 开始同步按钮（无框） =====
         self.start_btn = QPushButton("开始同步")
         self.start_btn.setStyleSheet("""
@@ -2105,15 +2137,21 @@ class MainWindow(QWidget):
             sel_all = QPushButton("全选")
             sel_all.setStyleSheet("""QPushButton { background-color: #4299e1; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }""")
-            top.addWidget(batch_del)
-            top.addSpacing(6)
-            top.addWidget(sel_all)
-            
-            # 一键下载按钮
+
+            # 一键下载
             batch_dl = QPushButton("一键下载")
             batch_dl.setStyleSheet("""QPushButton { background-color: #48bb78; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
                 QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
+
+            uploaded = ServerAPI.list_uploaded_files(self.token)
+            fnames = sorted([f["filename"] for f in uploaded], reverse=True)
+            finfo = {f["filename"]: f for f in uploaded}
+            local_set = set()
+            if hasattr(self, 'current_folder') and self.current_folder and os.path.isdir(self.current_folder):
+                for f in os.listdir(self.current_folder):
+                    if f.lower().endswith(".rolf") or f.lower().endswith(".rofl"):
+                        local_set.add(f)
 
             def do_batch_download():
                 if not hasattr(self, 'current_folder') or not self.current_folder:
@@ -2135,29 +2173,48 @@ class MainWindow(QWidget):
                         success += 1
                 batch_dl.setEnabled(True)
                 QMessageBox.information(dialog, "完成", f"已下载 {success}/{len(missing)} 个文件到：\n{self.current_folder}")
-                # 刷新列表不关闭窗口
                 dialog.close()
                 self.show_file_manager()
 
             batch_dl.clicked.connect(do_batch_download)
-            batch_dl.setEnabled(True)  # temporarily, will be refined after fnames
-            
-            # Also move fnames/local_set extraction before top bar is rendered
+
             top.addWidget(batch_dl)
             top.addSpacing(6)
+            top.addWidget(batch_del)
+            top.addSpacing(6)
+            top.addWidget(sel_all)
             layout.addLayout(top)
 
-            # Move uploaded fetch and local_set computation to right here
-            uploaded = ServerAPI.list_uploaded_files(self.token)
-            fnames = sorted([f["filename"] for f in uploaded], reverse=True)
-            finfo = {f["filename"]: f for f in uploaded}
-            local_set = set()
-            if hasattr(self, 'current_folder') and self.current_folder and os.path.isdir(self.current_folder):
-                for f in os.listdir(self.current_folder):
-                    if f.lower().endswith(".rolf") or f.lower().endswith(".rofl"):
-                        local_set.add(f)
-            batch_dl.setEnabled(len(fnames) > 0)
-
+            # ===== 筛选栏 =====
+            filter_bar = QHBoxLayout()
+            filter_bar.setSpacing(8)
+            all_modes = set()
+            all_vers = set()
+            for fn in fnames:
+                fp = os.path.join(self.current_folder, fn) if hasattr(self, 'current_folder') and self.current_folder else ""
+                m = parse_rolf_metadata(fp) if fp and os.path.exists(fp) else None
+                if m:
+                    gv = m.get("game_version", "")
+                    gm = m.get("game_mode", "")
+                    if gv: all_vers.add(gv)
+                    if gm: all_modes.add(gm)
+            flt_label = QLabel("筛选：")
+            flt_label.setStyleSheet("color: #4a5568; font-size: 12px; font-weight: bold; padding-left: 8px;")
+            filter_bar.addWidget(flt_label)
+            self.mode_filter = QComboBox()
+            self.mode_filter.addItem("全部模式")
+            for m in sorted(all_modes): self.mode_filter.addItem(m)
+            self.mode_filter.setStyleSheet("padding: 3px 8px; border: 1px solid #e2e8f0; border-radius: 4px;")
+            self.mode_filter.setFixedWidth(120)
+            filter_bar.addWidget(self.mode_filter)
+            self.ver_filter = QComboBox()
+            self.ver_filter.addItem("全部版本")
+            for v in sorted(all_vers, reverse=True): self.ver_filter.addItem(v)
+            self.ver_filter.setStyleSheet("padding: 3px 8px; border: 1px solid #e2e8f0; border-radius: 4px;")
+            self.ver_filter.setFixedWidth(140)
+            filter_bar.addWidget(self.ver_filter)
+            filter_bar.addStretch()
+            layout.addLayout(filter_bar)
 
             file_list = QListWidget()
             file_list.setStyleSheet("""QListWidget { border: 1px solid #e2e8f0; border-radius: 8px;
