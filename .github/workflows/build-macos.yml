@@ -18,6 +18,7 @@ jobs:
       - run: pip install PySide6 requests watchdog nuitka pillow
 
       - name: 编译
+        shell: bash
         run: |
           python -m nuitka --standalone --macos-create-app-bundle \
             --enable-plugin=pyside6 --output-dir=dist \
@@ -28,8 +29,9 @@ jobs:
             client/client.py
 
       - name: 制作 DMG
+        shell: bash
         run: |
-          python3 -c "from PIL import Image,ImageDraw;w,h=530,420;img=Image.new('RGBA',(w,h),(0,0,0,0));draw=ImageDraw.Draw(img);[(exec(f'r=int(220-(y/{h})*20);g=int(235-(y/{h})*15);b=int(255-(y/{h})*10);draw.line([(0,y),(w-1,y)],fill=(r,g,b,255))')) for y in range(h)];img.save('dist/dmg_bg.png')"
+          python3 -c "from PIL import Image,ImageDraw;w,h=530,420;img=Image.new('RGBA',(w,h),(0,0,0,0));draw=ImageDraw.Draw(img);[(exec('r=int(220-(y/'+str(h)+')*20);g=int(235-(y/'+str(h)+')*15);b=int(255-(y/'+str(h)+')*10);draw.line([(0,y),(w-1,y)],fill=(r,g,b,255))')) for y in range(h)];img.save('dist/dmg_bg.png')"
           mkdir -p dist/dmg_temp/.background
           cp dist/dmg_bg.png dist/dmg_temp/.background/
           cp -R dist/client.app dist/dmg_temp/英雄联盟对局文件助手.app

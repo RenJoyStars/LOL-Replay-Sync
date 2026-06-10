@@ -19,6 +19,7 @@ jobs:
       - run: pip install PySide6 requests watchdog nuitka
 
       - name: 编译
+        shell: cmd
         run: |
           python -m nuitka --standalone --onefile --windows-console-mode=disable ^
             --enable-plugin=pyside6 --output-dir=dist ^
