@@ -1599,8 +1599,8 @@ class MainWindow(QWidget):
         content = QWidget()
         content.setStyleSheet("background-color: #f5f7fa;")
         content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(12)
-        content_layout.setContentsMargins(20, 16, 20, 16)
+        content_layout.setSpacing(10)
+        content_layout.setContentsMargins(20, 12, 20, 12)
 
         # ===== 文件夹选择 =====
         folder_card = QFrame()
@@ -2378,8 +2378,9 @@ class MainWindow(QWidget):
                     btn.clicked.connect(cb_func)
                     hr_btns.addWidget(btn)
                     hr_btns.addSpacing(3)
-                # 所有文件都显示按钮（已下载但解析失败的也显示）
-                row2.addLayout(hr_btns)
+                # 底部按钮：仅当元数据区域未显示按钮时才添加
+                if meta is None:
+                    row2.addLayout(hr_btns)
 
                 wl.addLayout(row2)
 
