@@ -2020,6 +2020,37 @@ class MainWindow(QWidget):
             title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2d3748; padding: 8px;")
             top.addWidget(title)
             top.addStretch()
+            batch_dl = QPushButton("一键下载")
+            batch_dl.setStyleSheet("""QPushButton { background-color: #48bb78; color: white; border: none;
+                border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
+                QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
+            batch_dl.setEnabled(len(fnames) > 0)
+
+            def do_batch_download():
+                if not hasattr(self, 'current_folder') or not self.current_folder:
+                    QMessageBox.warning(dialog, "提示", "请先在主界面选择对局文件所在文件夹")
+                    return
+                if not os.path.isdir(self.current_folder):
+                    QMessageBox.warning(dialog, "提示", "主界面选定的文件夹不存在")
+                    return
+                missing = [f for f in fnames if f not in local_set]
+                if not missing:
+                    QMessageBox.information(dialog, "提示", "所有文件已下载到本地")
+                    return
+                batch_dl.setEnabled(False)
+                success = 0
+                for fn in missing:
+                    sp = os.path.join(self.current_folder, fn)
+                    ok, _ = ServerAPI.download_file(fn, self.token, sp)
+                    if ok:
+                        success += 1
+                batch_dl.setEnabled(True)
+                QMessageBox.information(dialog, "完成", f"已下载 {success}/{len(missing)} 个文件到：\n{self.current_folder}")
+                dialog.close()
+                self.show_file_manager()
+
+            batch_dl.clicked.connect(do_batch_download)
+
             batch_del = QPushButton("删除选中")
             batch_del.setStyleSheet("""QPushButton { background-color: #f56565; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
@@ -2028,6 +2059,8 @@ class MainWindow(QWidget):
             sel_all = QPushButton("全选")
             sel_all.setStyleSheet("""QPushButton { background-color: #4299e1; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }""")
+            top.addWidget(batch_dl)
+            top.addSpacing(6)
             top.addWidget(batch_del)
             top.addSpacing(6)
             top.addWidget(sel_all)
@@ -2157,7 +2190,7 @@ class MainWindow(QWidget):
                         btn_l = QHBoxLayout(btn_w)
                         btn_l.setSpacing(4)
                         btn_l.setContentsMargins(0, 0, 0, 0)
-                        for lb, bg, hov in [("下载","#48bb78","#38a169"),("删除","#f56565","#e53e3e"),("重命名","#4299e1","#3182ce")]:
+                        for lb, bg, hov in [("另存为","#48bb78","#38a169"),("删除","#f56565","#e53e3e"),("重命名","#4299e1","#3182ce")]:
                             btn = QPushButton(lb)
                             btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}")
                             btn.setFixedHeight(26)
@@ -2178,7 +2211,7 @@ class MainWindow(QWidget):
                 hr_btns.setSpacing(4)
                 hr_btns.addStretch(1)
                 for label, color, hover, cb_func in [
-                    ("下载", "#48bb78", "#38a169", 
+                    ("另存为", "#48bb78", "#38a169", 
                      lambda *a, fn=fname: save_file(fn, self.token, dialog)),
                     ("删除", "#f56565", "#e53e3e",
                      lambda *a, fn=fname, r=row: del_file(fn, r, self.token, dialog)),
