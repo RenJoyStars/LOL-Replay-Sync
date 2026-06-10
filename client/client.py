@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QListWidget, QListWidgetItem, QFrame,
     QDialog, QDialogButtonBox, QSystemTrayIcon, QMenu
 )
-from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize
+from PySide6.QtCore import Qt, QThread, Signal, QTimer, QSize, QObject, Slot
 from PySide6.QtGui import QFont, QIcon, QTextCursor, QAction, QPixmap
 
 
@@ -862,12 +862,26 @@ class ServerAPI:
             return False
 
     @staticmethod
-    def register(username, password):
+    def get_captcha_config():
+        """获取服务器验证码配置"""
+        try:
+            r = requests.get(f"{SERVER_URL}/captcha/config", timeout=5)
+            data = r.json()
+            return data.get("enabled", False), data.get("aid", "")
+        except:
+            return False, ""
+
+    @staticmethod
+    def register(username, password, ticket="", randstr=""):
         """注册新用户"""
         try:
+            payload = {"username": username, "password": password}
+            if ticket:
+                payload["ticket"] = ticket
+                payload["randstr"] = randstr
             r = requests.post(
                 f"{SERVER_URL}/register",
-                json={"username": username, "password": password},
+                json=payload,
                 timeout=10
             )
             data = r.json()
@@ -878,9 +892,13 @@ class ServerAPI:
             return False, f"网络错误：{str(e)}"
 
     @staticmethod
-    def login(username, password):
+    def login(username, password, ticket="", randstr=""):
         """用户登录"""
         try:
+            payload = {"username": username, "password": password}
+            if ticket:
+                payload["ticket"] = ticket
+                payload["randstr"] = randstr
             r = requests.post(
                 f"{SERVER_URL}/login",
                 json={"username": username, "password": password},
@@ -1431,13 +1449,23 @@ class LoginWindow(QWidget):
             self.status_label.setText("密码至少6个字符")
             return
 
+        # 验证码验证
+        captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
+        ticket, randstr = "", ""
+        if captcha_enabled:
+            dlg = CaptchaDialog(captcha_aid, self)
+            if dlg.exec() == QDialog.Accepted:
+                ticket, randstr = dlg.ticket, dlg.randstr
+            else:
+                return
+
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在注册...")
         self.login_btn.setEnabled(False)
         self.register_btn.setEnabled(False)
         QApplication.processEvents()
 
-        success, message = ServerAPI.register(username, password)
+        success, message = ServerAPI.register(username, password, ticket, randstr)
         
         self.login_btn.setEnabled(True)
         self.register_btn.setEnabled(True)
@@ -1469,6 +1497,61 @@ def rich_tooltip(widget, text):
             original_enter(event)
     widget.enterEvent = on_enter
 
+
+
+class CaptchaDialog(QDialog):
+    """腾讯云验证码弹窗"""
+    verified = Signal(str, str)  # ticket, randstr
+
+    def __init__(self, aid, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("安全验证")
+        self.setFixedSize(400, 360)
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        from PySide6.QtWebChannel import QWebChannel
+
+        self.browser = QWebEngineView()
+        layout.addWidget(self.browser)
+
+        # 加载 Tencent CAPTCHA
+        html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script src="https://t.captcha.qq.com/TCaptcha.js"></script>
+</head><body style="margin:0;display:flex;justify-content:center;align-items:center;height:100vh;background:#f5f7fa;">
+<div id="captcha-container"></div>
+<script>
+var captcha = new TencentCaptcha("{aid}", function(res) {{
+    if (res.ret === 0) {{
+        // 通过 bridge 传回 Python
+        window.bridge.onVerified(res.ticket, res.randstr);
+    }}
+}});
+captcha.show();
+</script></body></html>"""
+
+        class Bridge(QObject):
+            on_verified = Signal(str, str)
+
+            @Slot(str, str)
+            def onVerified(self, ticket, randstr):
+                self.on_verified.emit(ticket, randstr)
+
+        self.bridge = Bridge()
+        self.bridge.on_verified.connect(self._on_verified)
+        channel = QWebChannel()
+        channel.registerObject("bridge", self.bridge)
+        self.browser.page().setWebChannel(channel)
+        self.browser.setHtml(html)
+
+    def _on_verified(self, ticket, randstr):
+        self.ticket = ticket
+        self.randstr = randstr
+        self.verified.emit(ticket, randstr)
+        self.accept()
 
 class MainWindow(QWidget):
     """登录后的主界面"""

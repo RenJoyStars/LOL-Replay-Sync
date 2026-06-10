@@ -21,6 +21,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from collections import defaultdict
 import time
+import requests
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -36,7 +37,33 @@ PORT = 5050                        # 服务器端口
 # 初始化 Flask
 # ============================
 app = Flask(__name__)
-CORS(app)  # 允许客户端跨域访问
+CORS(app)
+
+# ===== 腾讯云验证码配置 =====
+# 从环境变量读取密钥，避免明文写入代码
+CAPTCHA_AID = "197104175"
+CAPTCHA_SECRET_KEY = os.environ.get("CAPTCHA_SECRET_KEY", "")
+
+def verify_captcha(ticket, randstr, user_ip):
+    """验证腾讯云验证码"""
+    if not CAPTCHA_SECRET_KEY:
+        return True  # 未配置密钥时跳过验证
+    try:
+        r = requests.post(
+            "https://ssl.captcha.qq.com/ticket/verify",
+            data={
+                "aid": CAPTCHA_AID,
+                "AppSecretKey": CAPTCHA_SECRET_KEY,
+                "Ticket": ticket,
+                "Randstr": randstr,
+                "UserIP": user_ip,
+            },
+            timeout=5
+        )
+        result = r.json()
+        return result.get("response") == "1"
+    except Exception:
+        return False  # 允许客户端跨域访问
 
 # 确保上传目录存在
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -142,6 +169,15 @@ def register():
     if not data:
         return jsonify({"error": "请提供用户名和密码"}), 400
     
+    # 验证码验证
+    if CAPTCHA_SECRET_KEY:
+        ticket = data.get("ticket", "")
+        randstr = data.get("randstr", "")
+        if not ticket or not randstr:
+            return jsonify({"error": "请完成验证码验证"}), 400
+        if not verify_captcha(ticket, randstr, request.remote_addr):
+            return jsonify({"error": "验证码验证失败，请重试"}), 400
+    
     username = data.get("username", "").strip()
     password = data.get("password", "")
 
@@ -171,9 +207,21 @@ def login():
     请求体: {"username": "xxx", "password": "xxx"}
     返回: {"token": "xxx", "username": "xxx"}
     """
+    wait = check_rate_limit(request.remote_addr)
+    if wait > 0:
+        return jsonify({"error": f"操作过于频繁，请 {wait} 秒后再试"}), 429
     data = request.get_json()
     if not data:
         return jsonify({"error": "请提供用户名和密码"}), 400
+
+    # 验证码验证
+    if CAPTCHA_SECRET_KEY:
+        ticket = data.get("ticket", "")
+        randstr = data.get("randstr", "")
+        if not ticket or not randstr:
+            return jsonify({"error": "请完成验证码验证"}), 400
+        if not verify_captcha(ticket, randstr, request.remote_addr):
+            return jsonify({"error": "验证码验证失败，请重试"}), 400
 
     username = data.get("username", "").strip()
     password = data.get("password", "")
