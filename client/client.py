@@ -1879,7 +1879,7 @@ class MainWindow(QWidget):
         folder_card_layout.setContentsMargins(0, 0, 0, 0)
         folder_card_layout.setSpacing(8)
 
-        folder_title = QLabel("定位游戏对局文件保存位置")
+        folder_title = QLabel("游戏对局文件保存位置")
         folder_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
         folder_card_layout.addWidget(folder_title)
 
@@ -1943,7 +1943,7 @@ class MainWindow(QWidget):
         lol_layout.setContentsMargins(0, 0, 0, 0)
         lol_layout.setSpacing(6)
 
-        lol_title = QLabel("定位播放对局文件客户端目录")
+        lol_title = QLabel("播放对局文件客户端目录")
         lol_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
         lol_layout.addWidget(lol_title)
 
