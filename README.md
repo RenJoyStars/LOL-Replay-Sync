@@ -10,7 +10,7 @@
 
 | 平台 | 下载 | 说明 |
 |------|------|------|
-| 🍎 **Mac (Apple Silicon)** | `LOLReplaySync-v0.3-mac-arm64.dmg` | M1/M2/M3/M4 芯片 |
+| 🍎 **Mac (Apple Silicon)** | `LOLReplaySync-v0.3-mac-arm64.dmg` | M系列 芯片 |
 | 🍎 **Mac (Intel)** | `LOLReplaySync-v0.3-mac-x86.dmg` | Intel 芯片 Mac（CI 自动编译） |
 | 🪟 **Windows** | `LOLReplaySync-v0.3-win.exe` | 所有 Windows |
 
