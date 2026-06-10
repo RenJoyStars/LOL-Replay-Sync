@@ -1610,33 +1610,44 @@ class LoginWindow(QWidget):
 # 🖥 主窗口
 # ============================
 def rich_tooltip(widget, text):
-    """设置带立即显示的悬浮提示（无延迟）"""
-    widget.setToolTip(text)
-    try:
-        widget.setToolTipDuration(10000)
-    except:
-        pass
-    # 直接设置按钮样式确保提示有白底
-    original_enter = widget.enterEvent
-    def on_enter(event):
-        from PySide6.QtWidgets import QToolTip, QApplication
-        from PySide6.QtCore import QPoint
-        # 确保全局 ToolTip 样式已应用
-        QApplication.instance().setStyleSheet(
-            QApplication.instance().styleSheet() + """
-            QToolTip {
-                background-color: white;
-                color: #2d3748;
-                border: 1px solid #e2e8f0;
-                border-radius: 4px;
-                padding: 4px 8px;
-                font-size: 12px;
-            }
+    """自定义悬浮提示（白底黑字，macOS兼容）"""
+    widget.setProperty("tip_text", text)
+    widget._tip_label = None
+
+    # 重写 enterEvent 和 leaveEvent
+    orig_enter = widget.enterEvent
+    orig_leave = widget.leaveEvent
+
+    def on_enter(e):
+        tl = QLabel(text, widget.window())
+        tl.setWindowFlags(Qt.ToolTip)
+        tl.setStyleSheet("""
+            background-color: #ffffff;
+            color: #2d3748;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 11px;
         """)
-        QToolTip.showText(widget.mapToGlobal(QPoint(0, widget.height() + 2)), text, widget)
-        if original_enter:
-            original_enter(event)
+        tl.adjustSize()
+        # 定位到按钮右下方
+        global_pos = widget.mapToGlobal(widget.rect().topRight())
+        tl.move(global_pos.x() + 4, global_pos.y())
+        tl.show()
+        widget._tip_label = tl
+        if orig_enter:
+            orig_enter(e)
+
+    def on_leave(e):
+        if widget._tip_label:
+            widget._tip_label.hide()
+            widget._tip_label.deleteLater()
+            widget._tip_label = None
+        if orig_leave:
+            orig_leave(e)
+
     widget.enterEvent = on_enter
+    widget.leaveEvent = on_leave
 
 
 
