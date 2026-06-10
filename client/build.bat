@@ -1,65 +1,69 @@
 @echo off
 chcp 65001 >nul
+title LOL 上传器 - 打包工具
 echo.
 echo ============================================
-echo   🎮 LOL 上传器 - 打包工具
+echo   🎮 LOL 上传器 - Windows 打包工具
 echo ============================================
 echo.
-echo   [1] 用 Nuitka 编译（推荐，不容易报毒）
-echo   [2] 用 PyInstaller 打包（快速但可能报毒）
+echo   ⚠ 推荐用 Nuitka 编译（不报毒）
+echo   Windows Defender 不会拦截
+echo.
+echo   [1] 🚀 一键安装依赖 + 编译
+echo   [2] 仅编译（已装过依赖）
 echo   [0] 退出
 echo.
 echo ============================================
 echo.
 set /p choice="请选择 [0/1/2]: "
 
-if "%choice%"=="1" goto nuitka
-if "%choice%"=="2" goto pyinstaller
+if "%choice%"=="1" goto full
+if "%choice%"=="2" goto compile
 if "%choice%"=="0" goto end
 echo 输入无效，请重新运行
 pause
 goto end
 
-:nuitka
+:full
 echo.
-echo 📦 正在用 Nuitka 编译...
+echo === 第一步：安装 Python 依赖 ===
+pip install PySide6 requests watchdog nuitka -q
 echo.
-echo 第一步：安装 Nuitka
-pip install nuitka
+echo ✅ 依赖安装完成
 echo.
-echo 第二步：编译...
-python -m nuitka --standalone --windows-disable-console --onefile --output-dir=dist client.py
+goto compile
+
+:compile
+echo.
+echo === 第二步：用 Nuitka 编译（不会报毒）===
+echo.
+python -m nuitka --standalone --onefile --windows-disable-console ^
+    --enable-plugin=pyside6 --output-dir=dist ^
+    --windows-icon-from-ico=icon.ico ^
+    --product-name="英雄联盟对局文件助手" ^
+    --file-version="1.0.0" ^
+    client.py
 echo.
 if exist dist\client.exe (
-    echo ✅ 编译成功！文件在 dist\client.exe
-    echo 📁 大小：
-    dir dist\client.exe
+    echo ✅ =========================================
+    echo ✅  编译成功！
+    echo ✅  文件位置：dist\client.exe
+    echo ✅ =========================================
+    echo.
+    echo 📁 文件大小：
+    dir /-C dist\client.exe | find "client.exe"
+    echo.
+    echo 💡 发送给朋友前建议做数字签名（淘宝 ¥20-50）：
+    echo    signtool sign /fd SHA256 /a /f 证书.pfx /p 密码 dist\client.exe
 ) else (
-    echo ❌ 编译失败，看看上面的错误信息
+    echo ❌ 编译失败，查看上面的错误信息
+    echo.
+    echo 💡 常见问题：
+    echo   - 需要安装 Visual C++ 生成工具
+    echo   - 下载：https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo   - 安装时勾选「使用 C++ 的桌面开发」
 )
 echo.
-echo 💡 提示：如果报毒，请申请数字签名证书后签名：
-echo    signtool sign /fd SHA256 /a /f 你的证书.pfx /p 密码 dist\client.exe
-pause
-goto end
-
-:pyinstaller
-echo.
-echo 📦 正在用 PyInstaller 打包...
-echo.
-echo 第一步：安装 PyInstaller
-pip install pyinstaller
-echo.
-echo 第二步：打包...
-pyinstaller --onefile --windowed --name "LOL上传器" client.py
-echo.
-if exist dist\LOL上传器.exe (
-    echo ✅ 打包成功！文件在 dist\LOL上传器.exe
-    echo 📁 大小：
-    dir dist\LOL上传器.exe
-) else (
-    echo ❌ 打包失败，看看上面的错误信息
-)
 pause
 goto end
 

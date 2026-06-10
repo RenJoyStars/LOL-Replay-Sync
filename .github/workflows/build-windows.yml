@@ -1,0 +1,38 @@
+name: 编译 Windows 版
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r client/requirements.txt nuitka
+
+      - name: 用 Nuitka 编译
+        run: |
+          python -m nuitka --standalone --onefile --windows-disable-console `
+            --enable-plugin=pyside6 --output-dir=dist `
+            --product-name="英雄联盟对局文件助手" `
+            --file-version="1.0.0" `
+            client/client.py
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: 英雄联盟对局文件助手-Windows
+          path: dist/client.exe
