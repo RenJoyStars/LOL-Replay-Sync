@@ -1302,7 +1302,7 @@ class LoginWindow(QWidget):
         layout.addWidget(form_container, 1)
 
         # ===== 底部 =====
-        footer = QLabel("v0.1 test · Made By Joy")
+        footer = QLabel("v0.2 test · Made By Joy")
         footer.setAlignment(Qt.AlignCenter)
         footer.setFixedHeight(36)
         footer.setStyleSheet("""
