@@ -1074,7 +1074,7 @@ class LoginWindow(QWidget):
             self.auto_login_cb.setChecked(True)
             # 延迟一点自动触发登录
             from PySide6.QtCore import QTimer
-            QTimer.singleShot(300, self.do_login)
+            QTimer.singleShot(300, self.do_auto_login)
 
     def setup_ui(self):
         # 整体背景色
@@ -1401,6 +1401,9 @@ class LoginWindow(QWidget):
         # 验证码验证
         captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
         ticket, randstr = "", ""
+        # 自动登录跳过验证码
+        if getattr(self, '_skip_captcha', False):
+            captcha_enabled = False
         if captcha_enabled:
             from PySide6.QtWebEngineWidgets import QWebEngineView
             from PySide6.QtCore import QUrl
@@ -1487,6 +1490,24 @@ class LoginWindow(QWidget):
         else:
             self.status_label.setStyleSheet("color: red;")
             self.status_label.setText(f"{result}")
+
+    def do_auto_login(self):
+        """自动登录（跳过验证码）"""
+        config = load_config()
+        username = config.get("username", "")
+        password = config.get("password", "")
+        token = config.get("token", "")
+        if username and password and token:
+            # 已有 token，直接进入主页
+            self.login_success.emit(token, username)
+        elif username and password:
+            self.username_input.setText(username)
+            self.password_input.setText(password)
+            # 自动登录，跳过验证码
+            self._skip_captcha = True
+            self.do_login()
+        else:
+            self.username_input.setText(username or "")
 
     def do_register(self):
         """处理注册"""
@@ -1583,9 +1604,6 @@ class LoginWindow(QWidget):
         if success:
             self.status_label.setStyleSheet("color: green;")
             self.status_label.setText(f"{message}，现在登录吧！")
-        else:
-            self.status_label.setStyleSheet("color: red;")
-            self.status_label.setText(f"{message}")
 
 
 # ============================
@@ -2367,7 +2385,7 @@ class MainWindow(QWidget):
         try:
             from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
                 QListWidgetItem, QPushButton, QLabel, QMessageBox, QFileDialog, QWidget,
-                QAbstractItemView, QInputDialog, QCheckBox, QComboBox)
+                QAbstractItemView, QInputDialog, QCheckBox, QComboBox, QDateEdit)
 
             dialog = QDialog()
             dialog.setWindowTitle("云端管理")
@@ -2467,6 +2485,30 @@ class MainWindow(QWidget):
             self.ver_filter.setStyleSheet("padding: 3px 8px; border: 1px solid #e2e8f0; border-radius: 4px;")
             self.ver_filter.setFixedWidth(140)
             filter_bar.addWidget(self.ver_filter)
+            
+            # 日期筛选
+            from PySide6.QtCore import QDate
+            self.date_from = QDateEdit()
+            self.date_from.setCalendarPopup(True)
+            self.date_from.setDate(QDate.currentDate().addYears(-1))
+            self.date_from.setDisplayFormat("yyyy-MM-dd")
+            self.date_from.setStyleSheet("padding: 2px 6px; border: 1px solid #e2e8f0; border-radius: 4px;")
+            self.date_from.setFixedWidth(130)
+            self.date_from.setSpecialValueText("起始日期")
+            date_sep = QLabel(" ~ ")
+            date_sep.setStyleSheet("color: #a0aec0; font-size: 12px;")
+            self.date_to = QDateEdit()
+            self.date_to.setCalendarPopup(True)
+            self.date_to.setDate(QDate.currentDate())
+            self.date_to.setDisplayFormat("yyyy-MM-dd")
+            self.date_to.setStyleSheet("padding: 2px 6px; border: 1px solid #e2e8f0; border-radius: 4px;")
+            self.date_to.setFixedWidth(130)
+            self.date_to.setSpecialValueText("结束日期")
+            
+            filter_bar.addSpacing(10)
+            filter_bar.addWidget(self.date_from)
+            filter_bar.addWidget(date_sep)
+            filter_bar.addWidget(self.date_to)
             filter_bar.addStretch()
             layout.addLayout(filter_bar)
 
@@ -2681,6 +2723,8 @@ class MainWindow(QWidget):
             def apply_filter():
                 mode = self.mode_filter.currentText()
                 ver = self.ver_filter.currentText()
+                date_from = self.date_from.date().toPython() if self.date_from.date() > self.date_from.minimumDate() else None
+                date_to = self.date_to.date().toPython() if self.date_to.date() > self.date_to.minimumDate() else None
                 for i in range(file_list.count()):
                     item = file_list.item(i)
                     fname = fnames[i] if i < len(fnames) else ""
@@ -2692,12 +2736,23 @@ class MainWindow(QWidget):
                             show = False
                         if ver != "全部版本" and m.get("game_version") != ver:
                             show = False
+                        if date_from or date_to:
+                            gt = m.get("game_time", "")
+                            if gt:
+                                try:
+                                    from datetime import datetime
+                                    dt = datetime.strptime(gt[:10], "%Y-%m-%d")
+                                    if date_from and dt < date_from: show = False
+                                    if date_to and dt > date_to: show = False
+                                except: pass
                     else:
                         if mode != "全部模式" or ver != "全部版本":
                             show = False
                     item.setHidden(not show)
             self.mode_filter.currentTextChanged.connect(lambda _: apply_filter())
             self.ver_filter.currentTextChanged.connect(lambda _: apply_filter())
+            self.date_from.dateChanged.connect(lambda _: apply_filter())
+            self.date_to.dateChanged.connect(lambda _: apply_filter())
 
 
             def play_replay(fn, meta, main_win):
