@@ -1402,66 +1402,59 @@ class LoginWindow(QWidget):
         captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
         ticket, randstr = "", ""
         if captcha_enabled:
-            # 用本地 HTTP 服务器 + 浏览器打开腾讯验证码
-            import http.server
-            import threading
-            import urllib.parse
-            import webbrowser
-            
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+            from PySide6.QtCore import QUrl
+            import http.server, threading, urllib.parse, socket
+
             result = {}
             ev = threading.Event()
-            
-            class CaptchaHandler(http.server.BaseHTTPRequestHandler):
+            cap_dlg = QDialog(self)
+            cap_dlg.setWindowTitle("安全验证")
+            cap_dlg.setFixedSize(400, 360)
+            cap_dlg.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+            cap_ly = QVBoxLayout(cap_dlg)
+            cap_ly.setContentsMargins(0,0,0,0)
+            browser = QWebEngineView()
+            cap_ly.addWidget(browser)
+
+            aid_val = captcha_aid
+            class CH(http.server.BaseHTTPRequestHandler):
                 def do_GET(self):
-                    qs = urllib.parse.urlparse(self.path).query
-                    params = urllib.parse.parse_qs(qs)
-                    if params.get("ticket") and params.get("randstr"):
-                        result["ticket"] = params["ticket"][0]
-                        result["randstr"] = params["randstr"][0]
-                        self.send_response(200)
-                        self.send_header("Content-type", "text/html; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write("<h2>✅ 验证成功！请关闭此窗口返回应用</h2>".encode())
+                    from urllib.parse import urlparse, parse_qs
+                    qs = urlparse(self.path).query
+                    p = parse_qs(qs)
+                    if p.get("ticket") and p.get("randstr"):
+                        result["ticket"] = p["ticket"][0]
+                        result["randstr"] = p["randstr"][0]
                         ev.set()
+                    done = ev.is_set()
+                    if done:
+                        body = "<html><body style='background:#f5f7fa;display:flex;justify-content:center;align-items:center;height:100vh;color:#48bb78;font-size:18px'>Verification done</body></html>"
                     else:
-                        html = f'''<!DOCTYPE html><html><head><meta charset="utf-8">
-<script src="https://t.captcha.qq.com/TCaptcha.js"></script>
-</head>
-<body style="display:flex;justify-content:center;align-items:center;height:100vh;background:#f5f7fa;flex-direction:column">
-<h3 style="color:#666;margin-bottom:20px">正在加载验证码...</h3>
-<div id="captcha-container"></div>
-<script>
-var captcha = new TencentCaptcha("{captcha_aid}", function(res) {{
-if (res.ret === 0) {{
-window.location.href = window.location.origin + "?ticket=" + encodeURIComponent(res.ticket) + "&randstr=" + encodeURIComponent(res.randstr);
-}}
-}});
-captcha.show();
-</script></body></html>'''
-                        self.send_response(200)
-                        self.send_header("Content-type", "text/html; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write(html.encode())
-                def log_message(self, *a): pass
-            
-            # 找个空闲端口
-            import socket
+                        body = """<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://t.captcha.qq.com/TCaptcha.js"></script></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;background:#f5f7fa"><div id=c></div><script>var c=new TencentCaptcha('""" + str(aid_val) + """',function(r){if(r.ret===0){window.location.href=window.location.origin+'?ticket='+encodeURIComponent(r.ticket)+'&randstr='+encodeURIComponent(r.randstr);}});c.show();</script></body></html>"""
+                    self.send_response(200)
+                    self.send_header("Content-type","text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(body.encode() if isinstance(body, str) else body)
+                def log_message(self,*a): pass
+
             sock = socket.socket()
-            sock.bind(("127.0.0.1", 0))
+            sock.bind(("127.0.0.1",0))
             port = sock.getsockname()[1]
             sock.close()
-            
-            srv = http.server.HTTPServer(("127.0.0.1", port), CaptchaHandler)
+            srv = http.server.HTTPServer(("127.0.0.1",port), CH)
             thr = threading.Thread(target=srv.serve_forever, daemon=True)
             thr.start()
-            webbrowser.open(f"http://127.0.0.1:{port}")
-            
-            # 等待验证结果（最多 120 秒）
+            browser.setUrl(QUrl("http://127.0.0.1:%d" % port))
+            cap_dlg.show()
+
             if not ev.wait(timeout=120):
-                QMessageBox.warning(self, "超时", "验证超时，请重试")
+                QMessageBox.warning(self, "超时", "验证超时")
                 srv.shutdown()
+                cap_dlg.close()
                 return
             srv.shutdown()
+            cap_dlg.close()
             ticket = result["ticket"]
             randstr = result["randstr"]
 
@@ -1517,41 +1510,64 @@ captcha.show();
             return
 
         # 验证码验证
+        # 验证码验证
         captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
         ticket, randstr = "", ""
         if captcha_enabled:
-            import http.server, threading, urllib.parse, webbrowser, socket
-            result = {}
-            ev = threading.Event()
-            class CH(http.server.BaseHTTPRequestHandler):
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+            from PySide6.QtCore import QUrl
+            import http.server, threading, urllib.parse, socket
+
+            result_ = {}
+            ev_ = threading.Event()
+            cap_dlg = QDialog(self)
+            cap_dlg.setWindowTitle("安全验证")
+            cap_dlg.setFixedSize(400, 360)
+            cap_dlg.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+            cap_ly = QVBoxLayout(cap_dlg)
+            cap_ly.setContentsMargins(0,0,0,0)
+            browser = QWebEngineView()
+            cap_ly.addWidget(browser)
+
+            aid_val2 = captcha_aid
+            class CH2(http.server.BaseHTTPRequestHandler):
                 def do_GET(self):
-                    qs = urllib.parse.urlparse(self.path).query
-                    params = urllib.parse.parse_qs(qs)
-                    if params.get("ticket") and params.get("randstr"):
-                        result["ticket"] = params["ticket"][0]
-                        result["randstr"] = params["randstr"][0]
-                        self.send_response(200)
-                        self.send_header("Content-type", "text/html; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write("<h2>验证成功！请关闭窗口</h2>".encode())
-                        ev.set()
+                    from urllib.parse import urlparse, parse_qs
+                    qs = urlparse(self.path).query
+                    p_ = parse_qs(qs)
+                    if p_.get("ticket") and p_.get("randstr"):
+                        result_["ticket"] = p_["ticket"][0]
+                        result_["randstr"] = p_["randstr"][0]
+                        ev_.set()
+                    if ev_.is_set():
+                        body = "<html><body style='background:#f5f7fa;display:flex;justify-content:center;align-items:center;height:100vh;color:#48bb78;font-size:18px'>OK</body></html>"
                     else:
-                        h = f'''<!DOCTYPE html><html><meta charset="utf-8"><script src="https://t.captcha.qq.com/TCaptcha.js"></script><body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column"><h3 style="color:#666">正在加载验证码...</h3><div id=c></div><script>var c=new TencentCaptcha("{captcha_aid}",function(r){{if(r.ret===0){{window.location.href=window.location.origin+"?ticket="+encodeURIComponent(r.ticket)+"&randstr="+encodeURIComponent(r.randstr);}}}});c.show();</script></body></html>'''
-                        self.send_response(200)
-                        self.send_header("Content-type", "text/html; charset=utf-8")
-                        self.end_headers()
-                        self.wfile.write(h.encode())
-                def log_message(self, *a): pass
-            sock = socket.socket(); sock.bind(("127.0.0.1",0))
-            port = sock.getsockname()[1]; sock.close()
-            srv = http.server.HTTPServer(("127.0.0.1",port), CH)
-            thr = threading.Thread(target=srv.serve_forever, daemon=True); thr.start()
-            webbrowser.open(f"http://127.0.0.1:{port}")
-            if not ev.wait(timeout=120):
+                        body = """<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://t.captcha.qq.com/TCaptcha.js"></script></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;background:#f5f7fa"><div id=c></div><script>var c=new TencentCaptcha('""" + str(aid_val2) + """',function(r){if(r.ret===0){window.location.href=window.location.origin+'?ticket='+encodeURIComponent(r.ticket)+'&randstr='+encodeURIComponent(r.randstr);}});c.show();</script></body></html>"""
+                    self.send_response(200)
+                    self.send_header("Content-type","text/html; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(body.encode())
+                def log_message(self,*a): pass
+
+            sock = socket.socket()
+            sock.bind(("127.0.0.1",0))
+            port = sock.getsockname()[1]
+            sock.close()
+            srv = http.server.HTTPServer(("127.0.0.1",port), CH2)
+            thr = threading.Thread(target=srv.serve_forever, daemon=True)
+            thr.start()
+            browser.setUrl(QUrl("http://127.0.0.1:%d" % port))
+            cap_dlg.show()
+
+            if not ev_.wait(timeout=120):
                 QMessageBox.warning(self, "超时", "验证超时")
-                srv.shutdown(); return
+                srv.shutdown()
+                cap_dlg.close()
+                return
             srv.shutdown()
-            ticket, randstr = result["ticket"], result["randstr"]
+            cap_dlg.close()
+            ticket = result_["ticket"]
+            randstr = result_["randstr"]
 
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在注册...")
