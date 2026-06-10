@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 设置 Python
+      - name: 设置 Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -25,10 +25,11 @@ jobs:
 
       - name: 编译
         run: |
-          python -m nuitka --standalone --onefile --windows-disable-console `
+          python -m nuitka --standalone --onefile --windows-console-mode=disable `
             --enable-plugin=pyside6 --output-dir=dist `
             --product-name="英雄联盟对局文件助手" `
             --file-version="1.0.0" `
+            --assume-yes-for-downloads `
             client\client.py
 
       - name: 上传编译产物
