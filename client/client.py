@@ -1231,95 +1231,9 @@ class LoginWindow(QWidget):
 
 
 
-def _launch_captcha_webkit(parent=None):
-    """macOS: 用原生 WebKit 弹窗打开腾讯验证码（子进程方式）"""
-    import os, subprocess
-    from urllib.parse import unquote
-    from PySide6.QtCore import QProcess, QTimer, QEventLoop
-    
-    script_path = os.path.join(os.path.dirname(__file__), "captcha_webkit.py")
-    if not os.path.exists(script_path) and getattr(sys, 'frozen', False):
-        script_path = os.path.join(os.path.dirname(sys.executable), "captcha_webkit.py")
-    if not os.path.exists(script_path):
-        QMessageBox.critical(parent, "错误", "验证码内核文件缺失 (captcha_webkit.py)")
-        return {"ticket": "", "randstr": ""}
-    
-    if os.path.exists("/tmp/captcha_result.txt"):
-        os.remove("/tmp/captcha_result.txt")
-    
-    result = {"ticket": "", "randstr": ""}
-    done_flag = [False]
-    
-    proc = QProcess()
-    proc.setProgram(sys.executable)
-    proc.setArguments([script_path, "0"])
-    proc.start()
-    
-    if not proc.waitForStarted(5000):
-        QMessageBox.critical(parent, "错误", "启动验证码窗口失败")
-        return result
-    
-    def check():
-        if os.path.exists("/tmp/captcha_result.txt"):
-            try:
-                with open("/tmp/captcha_result.txt") as f:
-                    data = f.read().strip()
-                if data:
-                    from urllib.parse import unquote as uq
-                    parts = data.split("&")
-                    for p in parts:
-                        if "=" in p:
-                            k, v = p.split("=", 1)
-                            v = uq(v) if "%" in v else v
-                            if k == "ticket": result["ticket"] = v
-                            elif k == "randstr": result["randstr"] = v
-            except:
-                pass
-            done_flag[0] = True
-            try: proc.kill()
-            except: pass
-    
-    timer = QTimer()
-    timer.timeout.connect(check)
-    timer.start(300)
-    
-    loop = QEventLoop()
-    QTimer.singleShot(120000, loop.quit)
-    
-    proc_ended = [False]
-    def on_proc_finished():
-        proc_ended[0] = True
-        loop.quit()
-    proc.finished.connect(on_proc_finished)
-    
-    while not done_flag[0]:
-        if not loop.processEvents():
-            break
-    
-    timer.stop()
-    if proc_ended[0] and not done_flag[0]:
-        check()
-    
-    if not proc.waitForFinished(5000):
-        proc.kill()
-    try:
-        os.remove("/tmp/captcha_result.txt")
-    except:
-        pass
-    
-    if result.get("ticket"):
-        pass
-    elif proc_ended[0]:
-        pass
-    else:
-        QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
-    
-    return result
-
-
-def _launch_captcha_browser(parent=None):
-    """Windows/Linux: 用系统浏览器打开本地 HTTP 验证页"""
-    import os, socket, threading, webbrowser, tempfile, time
+def launch_captcha_webkit(parent=None):
+    """弹出腾讯云验证码窗口 —— 跨平台：Mac 用 WKWebView，Win 用 WebView2"""
+    import os, socket, threading, tempfile, time
     from urllib.parse import unquote
     from http.server import HTTPServer, BaseHTTPRequestHandler
     
@@ -1328,88 +1242,107 @@ def _launch_captcha_browser(parent=None):
         os.remove(result_file)
     
     result = {"ticket": "", "randstr": ""}
+    done = [False, None]  # [flag, query_string]
     
     HTML_PAGE = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <script src="https://t.captcha.qq.com/TCaptcha.js"></script>
 </head>
-<body style="display:flex;justify-content:center;align-items:center;
-height:100vh;flex-direction:column;background:#f5f7fa;margin:0;
-font-family:-apple-system,Microsoft YaHei,sans-serif">
-<div style="color:#2d3748;font-size:14px;margin-bottom:16px">请完成安全验证</div>
+<body style="margin:0;padding:0;height:100vh;display:flex;
+justify-content:center;align-items:center;flex-direction:column;
+background:#f5f7fa;font-family:-apple-system,Microsoft YaHei,sans-serif">
+<div id="msg" style="color:#2d3748;font-size:15px;margin-bottom:16px">请完成安全验证</div>
 <div id="cap"></div>
 <script>
-try {new TencentCaptcha("197104175",function(r){
-if(r.ret===0){window.location.href="/done?ticket="+encodeURIComponent(r.ticket)+
-"&randstr="+encodeURIComponent(r.randstr)}else{document.getElementById("cap").innerHTML='<p style="color:#e53e3e">验证取消,请关闭页面重试</p>'}
-}).show()}catch(e){document.getElementById("cap").innerHTML='<p style="color:#e53e3e">加载失败:'+e.message+'</p>'}
+try {
+  new TencentCaptcha("197104175", function(r){
+    if(r.ret===0){
+      window.location.href="/done?ticket="+encodeURIComponent(r.ticket)+
+        "&randstr="+encodeURIComponent(r.randstr);
+    }else{
+      document.getElementById("cap").innerHTML=
+        "<p style='color:#e53e3e;font-size:16px;margin-top:40px'>验证未通过 (code:"+r.ret+")</p>"+
+        "<p style='color:#718096;font-size:12px'>请关闭窗口，稍后重试</p>";
+    }
+  }).show();
+} catch(e) {
+  document.getElementById("msg").textContent="加载失败: "+e.message;
+}
 </script></body></html>"""
-    
-    done = [False]
     
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path.startswith("/done?"):
-                qs = self.path[6:]
+                done[1] = self.path[6:]
                 self.send_response(200)
                 self.end_headers()
-                body = "<html><body style='text-align:center;padding-top:60px;font-family:sans-serif'><h2 style='color:#48bb78'>验证成功!</h2><p>请关闭此页面返回应用</p></body></html>"
-                self.wfile.write(body.encode("utf-8"))
-                with open(result_file, "w") as f:
-                    f.write(qs)
+                self.wfile.write(b"OK - you may close this window")
                 done[0] = True
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(HTML_PAGE.encode("utf-8"))
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(HTML_PAGE.encode("utf-8"))
         def log_message(self, *a): pass
     
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.close()
-    
     httpd = HTTPServer(("127.0.0.1", port), Handler)
     httpd.timeout = 1
     thr = threading.Thread(target=httpd.serve_forever, daemon=True)
     thr.start()
     
     url = "http://127.0.0.1:%d/" % port
-    webbrowser.open(url)
     
-    start = time.time()
-    while not done[0] and time.time() - start < 120:
-        httpd.handle_request()
+    try:
+        import webview
+        
+        w = webview.create_window("安全验证 (腾讯云)", url,
+                                  width=440, height=420, resizable=False, on_top=True)
+        
+        class TickChecker:
+            def __init__(self):
+                self.c = 0
+            def tick(self):
+                self.c += 1
+                if done[0]:
+                    w.destroy()
+                    return
+                if self.c > 480:  # 120s at 250ms tick
+                    w.destroy()
+        
+        checker = TickChecker()
+        webview.start(gui='cocoa' if os.uname().sysname == 'Darwin' else None,
+                      func=checker.tick)
+        
+    except ImportError:
+        # Fallback: open browser (no pywebview)
+        import webbrowser
+        webbrowser.open(url)
+        start = time.time()
+        while not done[0] and time.time() - start < 120:
+            httpd.handle_request()
     
     httpd.shutdown()
     
+    if done[1]:
+        parts = done[1].split("&")
+        for p in parts:
+            if "=" in p:
+                k, v = p.split("=", 1)
+                try:
+                    v = unquote(v) if "%" in v else v
+                except:
+                    pass
+                if k == "ticket": result["ticket"] = v
+                elif k == "randstr": result["randstr"] = v
+    
     if os.path.exists(result_file):
-        with open(result_file) as f:
-            data = f.read().strip()
-        if data:
-            parts = data.split("&")
-            for p in parts:
-                if "=" in p:
-                    k, v = p.split("=", 1)
-                    try:
-                        v = unquote(v) if "%" in v else v
-                    except:
-                        pass
-                    if k == "ticket": result["ticket"] = v
-                    elif k == "randstr": result["randstr"] = v
         os.remove(result_file)
     
     return result
-
-
-def launch_captcha_webkit(parent=None):
-    """平台感知的验证码入口：Mac 用原生 WebKit，Windows/Linux 用浏览器"""
-    import platform
-    if platform.system() == "Darwin":
-        return _launch_captcha_webkit(parent)
-    else:
-        return _launch_captcha_browser(parent)
 
 
 def rich_tooltip(widget, text):
