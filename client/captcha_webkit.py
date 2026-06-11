@@ -1,6 +1,7 @@
 #!/opt/homebrew/bin/python3.13
-"""macOS: 独立子进程 — WKWebView 内嵌 TCaptcha.js → URL Scheme 回调 → 写结果文件"""
-import json, os
+"""macOS: WKWebView + 内嵌 HTTP 服务 → URL Scheme 回调"""
+import json, os, socket, threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from Foundation import NSObject, NSURL
 from AppKit import NSApplication, NSWindow
 import WebKit
@@ -8,13 +9,15 @@ import WebKit
 AID = "197104175"
 RESULT_FILE = "/tmp/captcha_result.txt"
 
-# --- 读取内嵌 TCaptcha.js ---
+# --- 读 TCaptcha.js ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-TCAPTCHA_PATH = os.path.join(SCRIPT_DIR, "TCaptcha.js")
-if not os.path.exists(TCAPTCHA_PATH):
-    TCAPTCHA_PATH = "/tmp/TCaptcha.js"
-with open(TCAPTCHA_PATH, "r", encoding="utf-8") as f:
-    tcaptcha_js = f.read()
+for p in [os.path.join(SCRIPT_DIR, "TCaptcha.js"), "/tmp/TCaptcha.js"]:
+    if os.path.exists(p):
+        with open(p, "r", encoding="utf-8") as f:
+            tcaptcha_js = f.read()
+        break
+else:
+    tcaptcha_js = ""
 
 HTML = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
@@ -24,40 +27,50 @@ body{{height:100vh;display:flex;justify-content:center;align-items:center;
 flex-direction:column;background:#f5f7fa;font-family:-apple-system,sans-serif}}
 #msg{{color:#2d3748;font-size:15px;margin-bottom:16px}}
 #status{{color:#718096;font-size:12px;margin-top:8px}}
-</style>
-</head><body>
-<div id="msg">加载中...</div>
-<div id="cap"></div>
-<div id="status"></div>
-<script>
-// WKWebView loadHTMLString 下 document.domain 为空，TCaptcha 用它构造 sdk url 会失败
-Object.defineProperty(document, 'domain', {{
-    get: function(){{ return 't.captcha.qq.com'; }},
-    configurable: true
-}});
-</script>
+</style></head><body>
+<div id="msg">加载中...</div><div id="cap"></div><div id="status"></div>
 <script>{tcaptcha_js}</script>
 <script>
 try{{
-    document.getElementById('msg').textContent = '请完成安全验证';
-    document.getElementById('status').textContent = 'TCaptcha.js ' + (typeof TencentCaptcha === 'function' ? '✓' : '✗');
     var c = new TencentCaptcha({json.dumps(AID)}, function(r){{
-        if (r.ret === 0) {{
-            window.location.href =
-                "captcha_callback://done?ticket=" + encodeURIComponent(r.ticket) +
-                "&randstr=" + encodeURIComponent(r.randstr);
-        }} else {{
-            document.getElementById("cap").innerHTML =
-                "<p style='color:#e53e3e;font-size:16px;margin-top:40px'>验证未通过 (code:" + r.ret + ")</p>" +
-                "<p style='color:#718096;font-size:12px'>请关闭窗口重试</p>";
+        if(r.ret===0){{
+            window.location.href="captcha_callback://done?ticket="
+                +encodeURIComponent(r.ticket)+"&randstr="+encodeURIComponent(r.randstr);
+        }}else{{
+            document.getElementById("cap").innerHTML=
+                "<p style='color:#e53e3e;margin-top:40px'>验证未通过 (code:"+r.ret+")</p>";
+            document.getElementById("msg").textContent="";
         }}
     }});
+    document.getElementById('msg').textContent='请完成安全验证';
     c.show();
-}} catch(e) {{
-    document.getElementById('msg').textContent = '加载失败';
-    document.getElementById('status').textContent = e.message;
+}}catch(e){{
+    document.getElementById('msg').textContent='错误';
+    document.getElementById('status').textContent=e.message;
 }}
 </script></body></html>"""
+
+
+def find_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(HTML.encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, fmt, *args):
+        pass
 
 
 class NavDelegate(NSObject):
@@ -69,10 +82,17 @@ class NavDelegate(NSObject):
                 f.write(qs)
             NSApplication.sharedApplication().terminate_(None)
             return
-        handler(1)  # WKNavigationActionPolicyAllow
+        handler(1)
 
 
 def main():
+    port = find_free_port()
+    url = f"http://127.0.0.1:{port}/"
+
+    server = HTTPServer(("127.0.0.1", port), Handler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
     app = NSApplication.sharedApplication()
     app.setActivationPolicy_(0)
 
@@ -92,9 +112,7 @@ def main():
         ((0, 0), (460, 430)), config
     )
     wv.setNavigationDelegate_(NavDelegate.alloc().init())
-
-    base = NSURL.URLWithString_("https://t.captcha.qq.com/")
-    wv.loadHTMLString_baseURL_(HTML, base)
+    wv.loadRequest_(WebKit.NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
 
     win.setContentView_(wv)
     win.makeKeyAndOrderFront_(None)
