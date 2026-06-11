@@ -1256,7 +1256,7 @@ def launch_captcha_webkit(parent=None):
     # 启子进程 — 用当前 Python（pywebview 已安装在系统 Python）
     py_bin = sys.executable
     proc = subprocess.Popen([py_bin, script_path],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
     # QTimer 非阻塞轮询
     loop = QEventLoop()
@@ -1292,6 +1292,11 @@ def launch_captcha_webkit(parent=None):
     loop.exec()
     
     timer.stop()
+    # 捕获子进程错误
+    if proc.poll() is not None and proc.returncode != 0:
+        err = proc.stderr.read().decode(errors='replace')[:500]
+        if err.strip():
+            QMessageBox.critical(parent, "验证码错误", f"子进程异常退出 (code={proc.returncode}):\n{err}")
     if proc.poll() is None:
         proc.kill()
         proc.wait()
