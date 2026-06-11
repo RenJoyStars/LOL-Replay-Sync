@@ -1237,10 +1237,6 @@ def launch_captcha_webkit(parent=None):
     from urllib.parse import unquote
     from http.server import HTTPServer, BaseHTTPRequestHandler
     
-    result_file = os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
-    if os.path.exists(result_file):
-        os.remove(result_file)
-    
     result = {"ticket": "", "randstr": ""}
     done = [False, None]  # [flag, query_string]
     
@@ -1296,26 +1292,31 @@ try {
     
     url = "http://127.0.0.1:%d/" % port
     
+    # 等待 HTTP 服务就绪（最多等 3 秒）
+    import urllib.request
+    for _ in range(30):
+        try:
+            urllib.request.urlopen(url, timeout=0.1)
+            break
+        except:
+            time.sleep(0.1)
+    
     try:
         import webview
         
         w = webview.create_window("安全验证 (腾讯云)", url,
                                   width=440, height=420, resizable=False, on_top=True)
         
-        class TickChecker:
-            def __init__(self):
-                self.c = 0
-            def tick(self):
-                self.c += 1
-                if done[0]:
-                    w.destroy()
-                    return
-                if self.c > 480:  # 120s at 250ms tick
-                    w.destroy()
+        # 250ms tick: 240 ticks = 60s 超时
+        def tick():
+            tick.c += 1
+            if done[0]:
+                w.destroy()
+            elif tick.c > 240:
+                w.destroy()
+        tick.c = 0
         
-        checker = TickChecker()
-        webview.start(gui='cocoa' if os.uname().sysname == 'Darwin' else None,
-                      func=checker.tick)
+        webview.start(func=tick)
         
     except ImportError:
         # Fallback: open browser (no pywebview)
@@ -1338,9 +1339,6 @@ try {
                     pass
                 if k == "ticket": result["ticket"] = v
                 elif k == "randstr": result["randstr"] = v
-    
-    if os.path.exists(result_file):
-        os.remove(result_file)
     
     return result
 
