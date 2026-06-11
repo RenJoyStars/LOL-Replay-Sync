@@ -1,4 +1,4 @@
-name: 编译 Mac 版 (Intel)
+name: 编译 Mac 版 (Apple Silicon)
 
 on:
   push:
@@ -8,14 +8,14 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
 
-      - run: pip install PySide6 requests watchdog nuitka pillow
+      - run: pip install PySide6 requests watchdog nuitka pillow pywebview
 
       - name: 编译
         shell: bash
@@ -23,7 +23,7 @@ jobs:
           python -m nuitka --standalone --macos-create-app-bundle \
             --enable-plugin=pyside6 --output-dir=dist \
             --macos-app-name="英雄联盟对局文件助手" \
-            --macos-app-version="0.2" \
+            --macos-app-version="0.4" \
             --macos-app-icon=client/icon.icns \
             --assume-yes-for-downloads \
             client/client.py
@@ -37,9 +37,9 @@ jobs:
           cp -R dist/client.app dist/dmg_temp/英雄联盟对局文件助手.app
           ln -s /Applications dist/dmg_temp/Applications
           chflags hidden dist/dmg_temp/.background
-          hdiutil create -volname "英雄联盟对局文件助手" -srcfolder dist/dmg_temp -ov -format UDZO dist/英雄联盟对局文件助手-x86.dmg
+          hdiutil create -volname "英雄联盟对局文件助手" -srcfolder dist/dmg_temp -ov -format UDZO dist/英雄联盟对局文件助手-arm64.dmg
 
       - uses: actions/upload-artifact@v4
         with:
-          name: 英雄联盟对局文件助手-Mac-x86
-          path: dist/英雄联盟对局文件助手-x86.dmg
+          name: 英雄联盟对局文件助手-Mac-arm64
+          path: dist/英雄联盟对局文件助手-arm64.dmg
