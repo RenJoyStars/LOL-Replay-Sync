@@ -27,6 +27,7 @@ from pathlib import Path
 import requests
 import tempfile
 import shutil
+import subprocess
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
