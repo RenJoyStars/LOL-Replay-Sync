@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.13'
 
-      - run: pip install PySide6 requests watchdog nuitka pillow pywebview
+      - run: pip install --break-system-packages PySide6 requests watchdog nuitka pillow pywebview pyobjc-framework-WebKit
 
       - name: 编译
         shell: bash
