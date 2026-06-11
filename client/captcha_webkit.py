@@ -1,14 +1,14 @@
-#!/usr/bin/env python3
-"""macOS: 独立子进程 — 本地 HTTP 服务 + WKWebView 弹窗 → 写 /tmp/captcha_result.txt 后退出"""
-import sys, json, socket, threading, os, time
-import objc, WebKit, AppKit
-from PyObjCTools import AppHelper
-from http.server import HTTPServer, BaseHTTPRequestHandler
+#!/opt/homebrew/bin/python3.13
+"""macOS: 独立子进程 — WKWebView 直注 HTML → 拦截 URL Scheme → 写结果文件"""
+import json, os
+from Foundation import NSObject, NSURL
+from AppKit import NSApplication, NSWindow
+import WebKit
 
-aid = "197104175"
+AID = "197104175"
 RESULT_FILE = "/tmp/captcha_result.txt"
 
-HTML_PAGE = """<!DOCTYPE html>
+HTML = """<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <script src="https://t.captcha.qq.com/TCaptcha.js"></script>
 </head>
@@ -18,85 +18,58 @@ background:#f5f7fa;font-family:-apple-system,sans-serif">
 <div id="msg" style="color:#2d3748;font-size:15px;margin-bottom:16px">请完成安全验证</div>
 <div id="cap"></div>
 <script>
-try {
-  new TencentCaptcha(%s, function(r){
-    if(r.ret===0){
-      window.location.href="/done?ticket="+encodeURIComponent(r.ticket)+
-        "&randstr="+encodeURIComponent(r.randstr);
-    }else{
-      document.getElementById("cap").innerHTML=
-        "<p style='color:#e53e3e;font-size:16px;margin-top:40px'>验证未通过 (code:"+r.ret+")</p>"+
-        "<p style='color:#718096;font-size:12px'>请关闭窗口，稍后重试</p>";
-    }
-  }).show();
-} catch(e) {
-  document.getElementById("msg").textContent="加载失败: "+e.message;
-}
-</script></body></html>""" % json.dumps(aid)
+try{var c=new TencentCaptcha(%s,function(r){
+if(r.ret===0){window.location.href=
+"captcha_callback://done?ticket="+encodeURIComponent(r.ticket)+
+"&randstr="+encodeURIComponent(r.randstr)}else{
+document.getElementById("cap").innerHTML=
+"<p style='color:#e53e3e;font-size:16px;margin-top:40px'>验证未通过 (code:"+r.ret+")</p>"+
+"<p style='color:#718096;font-size:12px'>请关闭窗口重试</p>"}
+});c.show()}catch(e){document.getElementById("msg").textContent="加载失败: "+e.message}
+</script></body></html>""" % json.dumps(AID)
 
-# Start local HTTP server
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path.startswith("/done?"):
-            qs = self.path[6:]
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK - you may close this window")
+
+class NavDelegate(NSObject):
+    """拦截 captcha_callback://done?... 写入结果文件并退出"""
+    def webView_decidePolicyForNavigationAction_decisionHandler_(self, wv, action, handler):
+        u = action.request().URL().absoluteString() if action.request().URL() else ""
+        if u.startswith("captcha_callback://done?"):
+            qs = u.replace("captcha_callback://done?", "")
             with open(RESULT_FILE, "w") as f:
                 f.write(qs)
+            NSApplication.sharedApplication().terminate_(None)
             return
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(HTML_PAGE.encode("utf-8"))
-    def log_message(self, *a): pass
+        handler(1)  # WKNavigationActionPolicyAllow
 
-sock = socket.socket()
-sock.bind(("127.0.0.1", 0))
-port = sock.getsockname()[1]
-sock.close()
-httpd = HTTPServer(("127.0.0.1", port), Handler)
-thr = threading.Thread(target=httpd.serve_forever, daemon=True)
-thr.start()
 
-# Wait for server to be ready
-import urllib.request
-url = f"http://127.0.0.1:{port}/"
-for _ in range(30):
-    try:
-        urllib.request.urlopen(url, timeout=0.1)
-        break
-    except:
-        time.sleep(0.1)
+def main():
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(0)  # NSApplicationActivationPolicyRegular
 
-# Create WKWebView window
-app = AppKit.NSApplication.sharedApplication()
-win = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-    ((400, 300), (440, 400)),
-    AppKit.NSTitledWindowMask | AppKit.NSClosableWindowMask | AppKit.NSMiniaturizableWindowMask,
-    AppKit.NSBackingStoreBuffered, False
-)
-win.setTitle_("安全验证 (腾讯云)")
-win.center()
+    rect = ((300, 300), (460, 460))
+    win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+        rect, 15, 2, False
+    )
+    win.setTitle_("安全验证 (腾讯云)")
+    win.center()
 
-wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
-    ((0, 0), (440, 370)),
-    WebKit.WKWebViewConfiguration.alloc().init()
-)
-win.setContentView_(wv)
+    config = WebKit.WKWebViewConfiguration.alloc().init()
+    wv = WebKit.WKWebView.alloc().initWithFrame_configuration_(
+        ((0, 0), (460, 430)), config
+    )
+    wv.setNavigationDelegate_(NavDelegate.alloc().init())
 
-from Foundation import NSURL, NSURLRequest
-wv.loadRequest_(NSURLRequest.requestWithURL_(NSURL.URLWithString_(url)))
+    # 直注 HTML，baseURL 用腾讯域名让 TCaptcha.js 同域加载
+    base = NSURL.URLWithString_("https://t.captcha.qq.com/")
+    wv.loadHTMLString_baseURL_(HTML, base)
 
-# Poll for done
-def check():
-    if os.path.exists(RESULT_FILE):
-        httpd.shutdown()
-        AppKit.NSApplication.sharedApplication().terminate_(None)
-    else:
-        AppHelper.callAfter(0.3, check)
+    win.setContentView_(wv)
+    win.makeKeyAndOrderFront_(None)
+    app.activateIgnoringOtherApps_(True)
 
-AppHelper.callAfter(0.5, check)
-win.makeKeyAndOrderFront_(None)
-app.activateIgnoringOtherApps_(True)
-AppHelper.runEventLoop()
+    from PyObjCTools import AppHelper
+    AppHelper.runEventLoop()
+
+
+if __name__ == "__main__":
+    main()

@@ -1257,7 +1257,14 @@ def launch_captcha_webkit(parent=None):
     
     # 启子进程
     import subprocess
-    proc = subprocess.Popen([sys.executable, script_path],
+    # Mac 优先用 Homebrew Python（有 pyobjc+WebKit），Win 用 sys.executable
+    py_bin = sys.executable
+    if is_mac:
+        for candidate in ["/opt/homebrew/bin/python3.13", "/opt/homebrew/bin/python3"]:
+            if os.path.exists(candidate):
+                py_bin = candidate
+                break
+    proc = subprocess.Popen([py_bin, script_path],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
     # QTimer 非阻塞轮询
