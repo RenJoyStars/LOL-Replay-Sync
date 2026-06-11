@@ -1230,115 +1230,80 @@ class LoginWindow(QWidget):
 
 
 
-
 def launch_captcha_webkit(parent=None):
-    """弹出腾讯云验证码窗口 —— 跨平台：Mac 用 WKWebView，Win 用 WebView2"""
-    import os, socket, threading, tempfile, time
+    """弹出腾讯云验证码 —— 独立子进程运行，QTimer 非阻塞轮询结果
+    Mac: WKWebView (captcha_webkit.py)
+    Win: Edge WebView2 (captcha_win.py)
+    """
+    import os, platform, tempfile
     from urllib.parse import unquote
-    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from PySide6.QtCore import QTimer, QEventLoop
+    
+    is_mac = platform.system() == "Darwin"
+    script_name = "captcha_webkit.py" if is_mac else "captcha_win.py"
+    result_file = "/tmp/captcha_result.txt" if is_mac else os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
+    
+    script_path = os.path.join(os.path.dirname(__file__), script_name)
+    if not os.path.exists(script_path) and getattr(sys, 'frozen', False):
+        script_path = os.path.join(os.path.dirname(sys.executable), script_name)
+    if not os.path.exists(script_path):
+        QMessageBox.critical(parent, "错误", f"验证码内核文件缺失 ({script_name})")
+        return {"ticket": "", "randstr": ""}
+    
+    if os.path.exists(result_file):
+        os.remove(result_file)
     
     result = {"ticket": "", "randstr": ""}
-    done = [False, None]  # [flag, query_string]
     
-    HTML_PAGE = """<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<script src="https://t.captcha.qq.com/TCaptcha.js"></script>
-</head>
-<body style="margin:0;padding:0;height:100vh;display:flex;
-justify-content:center;align-items:center;flex-direction:column;
-background:#f5f7fa;font-family:-apple-system,Microsoft YaHei,sans-serif">
-<div id="msg" style="color:#2d3748;font-size:15px;margin-bottom:16px">请完成安全验证</div>
-<div id="cap"></div>
-<script>
-try {
-  new TencentCaptcha("197104175", function(r){
-    if(r.ret===0){
-      window.location.href="/done?ticket="+encodeURIComponent(r.ticket)+
-        "&randstr="+encodeURIComponent(r.randstr);
-    }else{
-      document.getElementById("cap").innerHTML=
-        "<p style='color:#e53e3e;font-size:16px;margin-top:40px'>验证未通过 (code:"+r.ret+")</p>"+
-        "<p style='color:#718096;font-size:12px'>请关闭窗口，稍后重试</p>";
-    }
-  }).show();
-} catch(e) {
-  document.getElementById("msg").textContent="加载失败: "+e.message;
-}
-</script></body></html>"""
+    # 启子进程
+    import subprocess
+    proc = subprocess.Popen([sys.executable, script_path],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path.startswith("/done?"):
-                done[1] = self.path[6:]
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b"OK - you may close this window")
-                done[0] = True
-            else:
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.end_headers()
-                self.wfile.write(HTML_PAGE.encode("utf-8"))
-        def log_message(self, *a): pass
+    # QTimer 非阻塞轮询
+    loop = QEventLoop()
+    elapsed = [0]
     
-    sock = socket.socket()
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    httpd = HTTPServer(("127.0.0.1", port), Handler)
-    httpd.timeout = 1
-    thr = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thr.start()
+    def check():
+        elapsed[0] += 100
+        if os.path.exists(result_file):
+            try:
+                with open(result_file) as f:
+                    data = f.read().strip()
+                if data:
+                    parts = data.split("&")
+                    for p in parts:
+                        if "=" in p:
+                            k, v = p.split("=", 1)
+                            v = unquote(v) if "%" in v else v
+                            if k == "ticket": result["ticket"] = v
+                            elif k == "randstr": result["randstr"] = v
+            except:
+                pass
+            loop.quit()
+        elif elapsed[0] >= 120000:  # 2 分钟超时
+            loop.quit()
+        elif proc.poll() is not None and elapsed[0] > 2000:
+            # 进程退出但没结果文件 → 用户关了窗口
+            loop.quit()
     
-    url = "http://127.0.0.1:%d/" % port
+    timer = QTimer()
+    timer.timeout.connect(check)
+    timer.start(100)
     
-    # 等待 HTTP 服务就绪（最多等 3 秒）
-    import urllib.request
-    for _ in range(30):
-        try:
-            urllib.request.urlopen(url, timeout=0.1)
-            break
-        except:
-            time.sleep(0.1)
+    loop.exec()
     
+    timer.stop()
+    if proc.poll() is None:
+        proc.kill()
+        proc.wait()
     try:
-        import webview
-        
-        w = webview.create_window("安全验证 (腾讯云)", url,
-                                  width=440, height=420, resizable=False, on_top=True)
-        
-        # 250ms tick: 240 ticks = 60s 超时
-        def tick():
-            tick.c += 1
-            if done[0]:
-                w.destroy()
-            elif tick.c > 240:
-                w.destroy()
-        tick.c = 0
-        
-        webview.start(func=tick)
-        
-    except ImportError:
-        # Fallback: open browser (no pywebview)
-        import webbrowser
-        webbrowser.open(url)
-        start = time.time()
-        while not done[0] and time.time() - start < 120:
-            httpd.handle_request()
+        os.remove(result_file)
+    except:
+        pass
     
-    httpd.shutdown()
-    
-    if done[1]:
-        parts = done[1].split("&")
-        for p in parts:
-            if "=" in p:
-                k, v = p.split("=", 1)
-                try:
-                    v = unquote(v) if "%" in v else v
-                except:
-                    pass
-                if k == "ticket": result["ticket"] = v
-                elif k == "randstr": result["randstr"] = v
+    if not result.get("ticket") and elapsed[0] >= 120000:
+        QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
     
     return result
 
