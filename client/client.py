@@ -77,10 +77,10 @@ def save_config(config):
 # .rolf 文件解析
 # ============================
 def parse_rolf_metadata(filepath):
-    """解析 .rofl 文件元数据
-    支持两种格式:
-      - RIOT 魔数 (新版真实文件): 二进制头+数据+JSON尾
-      - RLFR 魔数 (旧版/测试文件): RLFR+v+JSON长度+JSON正文
+    """解析 .rofl 文件元数据。
+    1. 从 RIOT 二进制头提取版本号
+    2. 从尾部 JSON 提取对局时长
+    3. 如果 LOL 客户端在运行，通过其本地 API 补齐完整信息（英雄、模式、地图等）
     """
     import re
     with open(filepath, 'rb') as f:
@@ -89,129 +89,251 @@ def parse_rolf_metadata(filepath):
             return None
         
         magic = data[0:4]
+        if magic != b'RIOT':
+            return None
+        
         info = {}
         
-        if magic == b'RIOT':
-            # === 新版 RIOT 格式 ===
-            # 从头部提取版本号 (length-prefixed string, 格式 x.x.x.x)
-            game_version = "未知"
-            header = data[:512]
-            i = 4  # skip magic
-            while i < len(header) - 5:
-                blen = header[i]
-                if blen <= 0 or blen > 30:
-                    i += 1
-                    continue
-                if i + 1 + blen > len(header):
-                    break
-                try:
-                    s = header[i+1:i+1+blen].decode('ascii')
-                    parts = s.split('.')
-                    if len(parts) == 4 and all(p.isdigit() for p in parts):
-                        game_version = s
-                        # 取前两段作为主版本号 (例: 16.12.785.1316 → 16.12)
-                        break
-                except:
-                    pass
+        # 从头部提取版本号 (length-prefixed string, 格式 x.x.x.x)
+        game_version = "未知"
+        header = data[:512]
+        i = 4
+        while i < len(header) - 5:
+            blen = header[i]
+            if blen <= 0 or blen > 30:
                 i += 1
-            info['game_version'] = game_version
-            
-            # 从尾部 JSON 提取 gameLength
-            tail = data[-4096:]
-            tail_text = tail.decode('latin-1', errors='replace')
-            m = re.search(r'"gameLength":(\d+)', tail_text)
-            info['game_length'] = int(m.group(1)) // 1000 if m else 0  # ms → s
-            info['game_time'] = '未知'
-            info['map'] = '未知'
-            info['game_mode'] = '未知'
-            info['queue'] = '未知'
-            info['players'] = []
-            info['player_count'] = 0
-            info['file_size_mb'] = round(len(data) / (1024*1024), 1)
-            info['file_mtime'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%H:%M:%S')
-            return info
+                continue
+            if i + 1 + blen > len(header):
+                break
+            try:
+                s = header[i+1:i+1+blen].decode('ascii')
+                parts = s.split('.')
+                if len(parts) == 4 and all(p.isdigit() for p in parts):
+                    game_version = s
+                    break
+            except:
+                pass
+            i += 1
+        info['game_version'] = game_version
         
-        elif magic in (b'RLFR', b'RFLR'):
-            # === RLFR 格式 (测试文件) ===
-            json_len = int.from_bytes(data[8:12], 'little')
-            if json_len <= 0 or json_len > len(data) - 12:
-                return None
-            metadata = json.loads(data[12:12+json_len].decode('utf-8', errors='replace'))
-            info = _parse_rlfr_metadata(metadata, filepath)
-            return info
+        # 从尾部 JSON 提取 gameLength
+        tail = data[-4096:]
+        tail_text = tail.decode('latin-1', errors='replace')
+        m = re.search(r'"gameLength":(\d+)', tail_text)
+        info['game_length'] = int(m.group(1)) // 1000 if m else 0
         
-        # 未知格式
-        return None
-
-
-def _parse_rlfr_metadata(metadata, filepath):
-    """从 RLFR 格式的 JSON 元数据中提取信息"""
-    try:
-        return _do_parse_rlfr(metadata, filepath)
-    except Exception:
-        return None
-
-
-def _do_parse_rlfr(metadata, filepath):
-    info = {}
-    
-    # 游戏信息
-    info['game_version'] = metadata.get('gameVersion', '未知')
-    info['game_type'] = metadata.get('gameType', '未知')
-    
-    # 对局时间
-    game_date = metadata.get('gameDate', '')
-    if game_date:
-        try:
-            dt = datetime.fromisoformat(game_date.replace('Z', '+00:00'))
-            info['game_time'] = dt.strftime('%Y-%m-%d %H:%M')
-        except:
-            info['game_time'] = game_date
-    else:
+        # 默认值
         info['game_time'] = '未知'
+        info['map'] = '未知'
+        info['game_mode'] = '未知'
+        info['queue'] = '未知'
+        info['players'] = []
+        info['player_count'] = 0
+        info['file_size_mb'] = round(len(data) / (1024*1024), 1)
+        info['file_mtime'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%H:%M:%S')
+        
+        # 从文件名提取 gameId，尝试通过 LOL 客户端 API 补齐信息
+        game_id = _extract_game_id(os.path.basename(filepath))
+        if game_id:
+            info['game_id'] = game_id
+            _enrich_from_lol_api(info)
+        
+        return info
+
+
+def _extract_game_id(filename):
+    """从 rofl 文件名提取 gameId。例: JP1-587218154.rofl → 587218154"""
+    import re
+    m = re.search(r'[-_]?(\d{6,12})', filename)
+    return int(m.group(1)) if m else None
+
+
+def _find_lol_client_auth():
+    """查找 LOL 客户端本地 API 的端口和密码。返回 (port, password) 或 None"""
+    import os, subprocess, re
+    
+    # Mac: 从 lockfile 读取
+    if sys.platform == "darwin":
+        lockfile = "/Applications/League of Legends.app/Contents/LoL/lockfile"
+    else:
+        # Win: 从进程查找
+        try:
+            out = subprocess.check_output(
+                'wmic process where "name like \'%LeagueClient%\'" get commandline',
+                shell=True, timeout=5
+            ).decode('gbk', errors='replace')
+            m = re.search(r'--app-port=(\d+)', out)
+            if m:
+                port = m.group(1)
+                m2 = re.search(r'--remoting-auth-token=([\w_-]+)', out)
+                if m2:
+                    return port, m2.group(1)
+        except:
+            pass
+        lockfile = os.path.join(os.environ.get("LOCALAPPDATA", ""),
+                                "Riot Games", "League of Legends", "lockfile")
+    
+    try:
+        with open(lockfile, 'r') as f:
+            parts = f.read().strip().split(':')
+            if len(parts) >= 5:
+                return parts[2], parts[3]  # port, password
+    except:
+        pass
+    return None, None
+
+
+def _lol_api(path, method="GET", body=None):
+    """调用 LOL 客户端本地 API"""
+    import ssl, json, http.client
+    port, password = _find_lol_client_auth()
+    if not port:
+        return None
+    auth = "riot:" + password
+    encoded = __import__('base64').b64encode(auth.encode()).decode()
+    try:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        conn = http.client.HTTPSConnection("127.0.0.1", int(port), context=ctx, timeout=3)
+        headers = {"Authorization": "Basic " + encoded}
+        if body:
+            headers["Content-Type"] = "application/json"
+            conn.request(method, path, json.dumps(body), headers)
+        else:
+            conn.request(method, path, headers=headers)
+        resp = conn.getresponse()
+        data = resp.read()
+        if resp.status != 200:
+            return None
+        return json.loads(data.decode('utf-8', errors='replace'))
+    except:
+        return None
+
+
+# Champion ID → internal name mapping (from DDragon)
+_CHAMP_ID_TO_ALIAS = {
+    1: "Annie", 2: "Olaf", 3: "Galio", 4: "TwistedFate", 5: "XinZhao",
+    6: "Urgot", 7: "Leblanc", 8: "Vladimir", 9: "FiddleSticks", 10: "Kayle",
+    11: "MasterYi", 12: "Alistar", 13: "Ryze", 14: "Sion", 15: "Sivir",
+    16: "Soraka", 17: "Teemo", 18: "Tristana", 19: "Warwick", 20: "Nunu",
+    21: "MissFortune", 22: "Ashe", 23: "Tryndamere", 24: "Jax",
+    25: "Morgana", 26: "Zilean", 27: "Singed", 28: "Evelynn", 29: "Twitch",
+    30: "Karthus", 31: "Chogath", 32: "Amumu", 33: "Rammus", 34: "Anivia",
+    35: "Shaco", 36: "DrMundo", 37: "Sona", 38: "Kassadin", 39: "Irelia",
+    40: "Janna", 41: "Gangplank", 42: "Corki", 43: "Karma", 44: "Taric",
+    45: "Veigar", 48: "Trundle", 50: "Swain", 51: "Caitlyn",
+    53: "Blitzcrank", 54: "Malphite", 55: "Katarina", 56: "Nocturne",
+    57: "Maokai", 58: "Renekton", 59: "JarvanIV", 60: "Elise",
+    61: "Orianna", 62: "MonkeyKing", 63: "Brand", 64: "LeeSin", 67: "Vayne",
+    68: "Rumble", 69: "Cassiopeia", 72: "Skarner", 74: "Heimerdinger",
+    75: "Nasus", 76: "Nidalee", 77: "Udyr", 78: "Poppy", 79: "Gragas",
+    80: "Pantheon", 81: "Ezreal", 82: "Mordekaiser", 83: "Yorick",
+    84: "Akali", 85: "Kennen", 86: "Garen", 89: "Leona", 90: "Malzahar",
+    91: "Talon", 92: "Riven", 96: "KogMaw", 98: "Shen", 99: "Lux",
+    101: "Xerath", 102: "Shyvana", 103: "Ahri", 104: "Graves", 105: "Fizz",
+    106: "Volibear", 107: "Rengar", 110: "Varus", 111: "Nautilus",
+    112: "Viktor", 113: "Sejuani", 114: "Fiora", 115: "Ziggs", 117: "Lulu",
+    119: "Draven", 120: "Hecarim", 121: "Khazix", 122: "Darius",
+    126: "Jayce", 127: "Lissandra", 131: "Diana", 133: "Quinn",
+    134: "Syndra", 136: "AurelionSol", 141: "Kayn", 142: "Zoe", 143: "Zyra",
+    145: "Kaisa", 147: "Seraphine", 150: "Gnar", 154: "Zac", 157: "Yasuo",
+    161: "Velkoz", 163: "Taliyah", 164: "Camille", 166: "Akshan",
+    200: "Belveth", 201: "Braum", 202: "Jhin", 203: "Kindred", 221: "Zeri",
+    222: "Jinx", 223: "TahmKench", 233: "Briar", 234: "Viego", 235: "Senna",
+    236: "Lucian", 238: "Zed", 240: "Kled", 245: "Ekko", 246: "Qiyana",
+    254: "Vi", 266: "Aatrox", 267: "Nami", 268: "Azir", 350: "Yuumi",
+    360: "Samira", 412: "Thresh", 420: "Illaoi", 421: "RekSai",
+    427: "Ivern", 429: "Kalista", 432: "Bard", 497: "Rakan", 498: "Xayah",
+    516: "Ornn", 517: "Sylas", 518: "Neeko", 523: "Aphelios", 526: "Rell",
+    555: "Pyke", 711: "Vex", 777: "Yone", 799: "Ambessa", 800: "Mel",
+    875: "Sett", 876: "Lillia", 887: "Gwen", 888: "Renata", 893: "Aurora",
+    895: "Nilah", 897: "KSante", 901: "Smolder", 902: "Milio", 910: "Hwei",
+    950: "Naafiri",
+}
+
+_MAP_NAMES = {11: '召唤师峡谷', 12: '嚎哭深渊', 30: '扭曲丛林', 21: '统治战场',
+              14: '屠夫之桥', 33: '云顶之弈', 1020: '斗魂竞技场'}
+
+_MODE_NAMES = {'CLASSIC': '经典模式', 'ARAM': '极地大乱斗', 'PRACTICETOOL': '训练模式',
+               'URF': '无限火力', 'ONEFORALL': '克隆模式', 'TFT': '云顶之弈',
+               'ARENA': '斗魂竞技场', 'NEXUSBLITZ': '极限闪击', 'DOOMBOTSTEEMO': '末日人机'}
+
+
+def _enrich_from_lol_api(info):
+    """通过 LOL 客户端本地 API 补齐对局元数据"""
+    game_id = info.get('game_id')
+    if not game_id:
+        return
+    data = _lol_api(f"/lol-match-history/v1/games/{game_id}")
+    if not data:
+        return
+    
+    # 游戏时间
+    ts = data.get('gameCreation')
+    if ts:
+        info['game_time'] = datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d %H:%M')
+    
+    # 时长
+    dur = data.get('gameDuration')
+    if dur:
+        info['game_length'] = dur
     
     # 地图
-    map_names = {11: '召唤师峡谷', 12: '嚎哭深渊', 30: '扭曲丛林', 
-                 21: '统治战场', 14: '屠夫之桥', 33: '云顶之弈',
-                 1020: '斗魂竞技场'}
-    info['map'] = map_names.get(metadata.get('mapId', 0), f'地图{metadata.get("mapId", "?")}')
-    
-    # 对局时长
-    info['game_length'] = metadata.get('gameLength', 0)
+    mid = data.get('mapId')
+    if mid:
+        info['map'] = _MAP_NAMES.get(mid, f'地图{mid}')
     
     # 游戏模式
-    game_mode = metadata.get('gameMode', '')
-    mode_names = {
-        'CLASSIC': '经典模式', 'ARAM': '极地大乱斗', 'TFT': '云顶之弈',
-        'ARENA': '斗魂竞技场', 'PRACTICETOOL': '训练模式',
-        'URF': '无限火力', 'NEXUSBLITZ': '极限闪击',
-        'ONEFORALL': '克隆模式', 'DOOMBOTSTEEMO': '末日人机'
-    }
-    info['game_mode'] = mode_names.get(game_mode, game_mode if game_mode else '未知')
+    mode = data.get('gameMode', '')
+    info['game_mode'] = _MODE_NAMES.get(mode, mode or '未知')
     
-    # 队列类型
-    queue_types = {
-        400: '单双排', 420: '单双排', 430: '匹配',
-        440: '灵活排', 450: '极地大乱斗', 700: '组排',
-        800: '云顶之弈', 900: '云顶之弈', 1020: '斗魂竞技场'
-    }
-    info['queue'] = queue_types.get(metadata.get('queueId', 0), '其他')
-    
-    # 玩家列表
+    # 玩家英雄
     players = []
-    for p in metadata.get('players', []):
-        champion = p.get('championName', '') or p.get('championId', '')
-        name = p.get('name', '未知') or p.get('summonerName', '未知')
-        players.append({'name': name, 'champion': champion})
-    
+    for p in data.get('participants', []):
+        cid = p.get('championId', 0)
+        alias = _CHAMP_ID_TO_ALIAS.get(cid, str(cid))
+        players.append({'name': '', 'champion': alias})
     info['players'] = players
     info['player_count'] = len(players)
+
+
+def _trigger_replay_via_api(game_id, local_rofl_path=None):
+    """通过 LOL 客户端 API 触发回放播放。
+    将 rofl 文件复制到客户端回放目录，然后调用 watch API。
+    返回 (success, message)
+    """
+    import shutil
     
-    # 文件信息
-    info['file_size_mb'] = round(os.path.getsize(filepath) / (1024*1024), 1)
-    info['file_mtime'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%H:%M:%S')
+    # 获取回放目录
+    replay_dir = None
+    dir_data = _lol_api("/lol-replays/v1/rofls/path")
+    if dir_data:
+        replay_dir = dir_data if isinstance(dir_data, str) else dir_data.get('path', '')
     
-    return info
+    if not replay_dir and sys.platform == "darwin":
+        replay_dir = os.path.expanduser("~/Documents/League of Legends/Replays")
+    
+    # 如果有本地文件，复制到回放目录
+    if local_rofl_path and os.path.exists(local_rofl_path):
+        if replay_dir:
+            dest = os.path.join(replay_dir, os.path.basename(local_rofl_path))
+            try:
+                shutil.copy2(local_rofl_path, dest)
+            except:
+                pass
+    
+    # 调用 watch API
+    result = _lol_api(f"/lol-replays/v1/metadata/{game_id}")
+    if result and result.get('state') in ('watch', 'downloading'):
+        # 如果已经是 watch 状态，客户端会自动在界面显示回放入口
+        return True, "回放已就绪，请点击 LOL 客户端中的「观看」按钮"
+    
+    # 尝试下载
+    _lol_api(f"/lol-replays/v1/rofls/{game_id}/download", method="POST")
+    
+    return True, ("回放请求已发送，请查看 LOL 客户端\n"
+                   f"（如未自动弹出，请手动点击「生涯-对战记录-下载回放」）")
 
 
 # 英雄联盟英雄名 英→中 对照表
@@ -2527,44 +2649,43 @@ class MainWindow(QWidget):
 
 
             def play_replay(fn, meta, main_win):
-                """Mac: open -a 交给 LeagueClient；Win: LeagueClient.exe"""
-                if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
-                    QMessageBox.warning(dialog, "提示", "请先在主界面设置LOL客户端目录")
+                """通过 LOL 客户端 API 触发回放"""
+                game_id = meta.get('game_id') if meta else None
+                
+                if not game_id:
+                    # 从文件名提取
+                    game_id = _extract_game_id(fn)
+                
+                if not game_id:
+                    QMessageBox.warning(dialog, "提示", "无法从此文件提取游戏 ID")
                     return
-                if sys.platform == "darwin":
-                    # Mac: open -a "League of Legends.app" file.rofl
-                    dest = os.path.join(os.path.expanduser("~/Downloads"), fn)
-                    ok, _ = ServerAPI.download_file(fn, main_win.token, dest)
-                    if not ok:
-                        QMessageBox.warning(dialog, "失败", "下载文件失败")
-                        return
-                    import subprocess
-                    try:
-                        subprocess.Popen(["open", "-a", main_win.lol_path, dest])
-                        QMessageBox.information(
-                            dialog, "回放已发送",
-                            f"已通知 LOL 客户端打开回放：\n{dest}\n\n"
-                            "如未自动播放，将文件拖入 LOL 客户端窗口即可。"
-                        )
-                    except Exception as e:
-                        QMessageBox.warning(dialog, "失败", str(e))
+                
+                # 先下载文件到本地
+                dest = os.path.join(tempfile.gettempdir(), fn)
+                ok, _ = ServerAPI.download_file(fn, main_win.token, dest)
+                if not ok:
+                    QMessageBox.warning(dialog, "失败", "下载文件失败")
+                    return
+                
+                # 通过 API 触发回放
+                success, msg = _trigger_replay_via_api(game_id, dest)
+                if success:
+                    QMessageBox.information(dialog, "回放", msg)
                 else:
-                    # Win: 直接用 LeagueClient.exe 打开
-                    exe_path = os.path.join(main_win.lol_path, "LeagueClient.exe")
-                    if not os.path.exists(exe_path):
-                        QMessageBox.warning(dialog, "失败", f"找不到 LeagueClient.exe：\n{exe_path}")
+                    # API 不可用时回退到 open -a
+                    if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
+                        QMessageBox.warning(dialog, "提示", msg or "请先在主界面设置LOL客户端目录")
                         return
-                    import tempfile
-                    tmp_dir = tempfile.gettempdir()
-                    local_path = os.path.join(tmp_dir, fn)
-                    ok, _ = ServerAPI.download_file(fn, main_win.token, local_path)
-                    if not ok:
-                        QMessageBox.warning(dialog, "失败", "下载文件失败")
-                        return
-                    try:
-                        subprocess.Popen([exe_path, local_path])
-                    except Exception as e:
-                        QMessageBox.warning(dialog, "失败", f"无法打开回放：{e}")
+                    if sys.platform == "darwin":
+                        try:
+                            subprocess.Popen(["open", "-a", main_win.lol_path, dest])
+                            QMessageBox.information(dialog, "回放已发送",
+                                f"已通知 LOL 客户端打开回放：\n{dest}")
+                        except Exception as e:
+                            QMessageBox.warning(dialog, "失败", str(e))
+                    else:
+                        QMessageBox.information(dialog, "提示",
+                            "请在 LOL 客户端中手动打开回放")
 
             def save_file(fn, tok, dlg):
                 sp, _ = QFileDialog.getSaveFileName(dlg, "保存文件", fn, "LOL Replay (*.rofl);;所有文件 (*)")
