@@ -2455,14 +2455,27 @@ class MainWindow(QWidget):
                     return
                 try:
                     if sys.platform == "darwin":
+                        # Mac: 通过 LeagueClient 二进制播放
+                        # 路径: xxx.app/Contents/LoL/LeagueClient.app/Contents/MacOS/LeagueClient
                         import subprocess
-                        subprocess.Popen(["open", local_path])
+                        client_bin = os.path.join(
+                            main_win.lol_path,
+                            "Contents", "LoL", "LeagueClient.app",
+                            "Contents", "MacOS", "LeagueClient"
+                        )
+                        if os.path.exists(client_bin):
+                            subprocess.Popen([client_bin, local_path],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        else:
+                            # fallback: 用 open -a 尝试
+                            subprocess.Popen(["open", "-a", main_win.lol_path, "--args", local_path],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     elif sys.platform == "win32":
                         exe_path = os.path.join(main_win.lol_path, "LeagueClient.exe")
                         import subprocess
                         subprocess.Popen([exe_path, local_path])
                 except Exception as e:
-                    QMessageBox.warning(dialog, "失败", "无法打开回放：{}".format(e))
+                    QMessageBox.warning(dialog, "失败", f"无法打开回放：{e}")
 
             def save_file(fn, tok, dlg):
                 sp, _ = QFileDialog.getSaveFileName(dlg, "保存文件", fn, "LOL Replay (*.rofl);;所有文件 (*)")
