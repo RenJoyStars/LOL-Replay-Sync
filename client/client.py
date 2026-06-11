@@ -77,87 +77,141 @@ def save_config(config):
 # .rolf 文件解析
 # ============================
 def parse_rolf_metadata(filepath):
-    """解析 .rolf 文件的元数据信息"""
-    try:
-        with open(filepath, 'rb') as f:
-            data = f.read()
-        
-        # .rolf 文件结构：魔数(4B) + 版本(4B) + JSON长度(4B) + JSON数据
+    """解析 .rofl 文件元数据
+    支持两种格式:
+      - RIOT 魔数 (新版真实文件): 二进制头+数据+JSON尾
+      - RLFR 魔数 (旧版/测试文件): RLFR+v+JSON长度+JSON正文
+    """
+    import re
+    with open(filepath, 'rb') as f:
+        data = f.read()
         if len(data) < 12:
             return None
         
         magic = data[0:4]
-        if magic not in (b'RLFR', b'RFLR'):
-            return None  # 不是合法的 .rolf 文件
-        
-        json_len = int.from_bytes(data[8:12], 'little')
-        if json_len <= 0 or json_len > len(data) - 12:
-            return None
-        
-        metadata = json.loads(data[12:12+json_len].decode('utf-8', errors='replace'))
-        
-        # 提取有用信息
         info = {}
         
-        # 游戏信息
-        info['game_version'] = metadata.get('gameVersion', '未知')
-        info['game_type'] = metadata.get('gameType', '未知')
-        
-        # 对局时间
-        game_date = metadata.get('gameDate', '')
-        if game_date:
-            try:
-                dt = datetime.fromisoformat(game_date.replace('Z', '+00:00'))
-                info['game_time'] = dt.strftime('%Y-%m-%d %H:%M')
-            except:
-                info['game_time'] = game_date
-        else:
+        if magic == b'RIOT':
+            # === 新版 RIOT 格式 ===
+            # 从头部提取版本号 (length-prefixed string, 格式 x.x.x.x)
+            game_version = "未知"
+            header = data[:512]
+            i = 4  # skip magic
+            while i < len(header) - 5:
+                blen = header[i]
+                if blen <= 0 or blen > 30:
+                    i += 1
+                    continue
+                if i + 1 + blen > len(header):
+                    break
+                try:
+                    s = header[i+1:i+1+blen].decode('ascii')
+                    parts = s.split('.')
+                    if len(parts) == 4 and all(p.isdigit() for p in parts):
+                        game_version = s
+                        # 取前两段作为主版本号 (例: 16.12.785.1316 → 16.12)
+                        break
+                except:
+                    pass
+                i += 1
+            info['game_version'] = game_version
+            
+            # 从尾部 JSON 提取 gameLength
+            tail = data[-4096:]
+            tail_text = tail.decode('latin-1', errors='replace')
+            m = re.search(r'"gameLength":(\d+)', tail_text)
+            info['game_length'] = int(m.group(1)) // 1000 if m else 0  # ms → s
             info['game_time'] = '未知'
+            info['map'] = '未知'
+            info['game_mode'] = '未知'
+            info['queue'] = '未知'
+            info['players'] = []
+            info['player_count'] = 0
+            info['file_size_mb'] = round(len(data) / (1024*1024), 1)
+            info['file_mtime'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%H:%M:%S')
+            return info
         
-        # 地图
-        map_names = {11: '召唤师峡谷', 12: '嚎哭深渊', 30: '扭曲丛林', 
-                     21: '统治战场', 14: '屠夫之桥', 33: '云顶之弈',
-                     1020: '斗魂竞技场'}
-        info['map'] = map_names.get(metadata.get('mapId', 0), f'地图{metadata.get("mapId", "?")}')
+        elif magic in (b'RLFR', b'RFLR'):
+            # === RLFR 格式 (测试文件) ===
+            json_len = int.from_bytes(data[8:12], 'little')
+            if json_len <= 0 or json_len > len(data) - 12:
+                return None
+            metadata = json.loads(data[12:12+json_len].decode('utf-8', errors='replace'))
+            info = _parse_rlfr_metadata(metadata, filepath)
+            return info
         
-        # 对局时长
-        info['game_length'] = metadata.get('gameLength', 0)
-        
-        # 游戏模式
-        game_mode = metadata.get('gameMode', '')
-        mode_names = {
-            'CLASSIC': '经典模式', 'ARAM': '极地大乱斗', 'TFT': '云顶之弈',
-            'ARENA': '斗魂竞技场', 'PRACTICETOOL': '训练模式',
-            'URF': '无限火力', 'NEXUSBLITZ': '极限闪击',
-            'ONEFORALL': '克隆模式', 'DOOMBOTSTEEMO': '末日人机'
-        }
-        info['game_mode'] = mode_names.get(game_mode, game_mode if game_mode else '未知')
-        
-        # 队列类型
-        queue_types = {
-            400: '单双排', 420: '单双排', 430: '匹配',
-            440: '灵活排', 450: '极地大乱斗', 700: '组排',
-            800: '云顶之弈', 900: '云顶之弈', 1020: '斗魂竞技场'
-        }
-        info['queue'] = queue_types.get(metadata.get('queueId', 0), '其他')
-        
-        # 玩家列表
-        players = []
-        for p in metadata.get('players', []):
-            champion = p.get('championName', '') or p.get('championId', '')
-            name = p.get('name', '未知') or p.get('summonerName', '未知')
-            players.append({'name': name, 'champion': champion})
-        
-        info['players'] = players
-        info['player_count'] = len(players)
-        
-        # 文件信息
-        info['file_size_mb'] = round(os.path.getsize(filepath) / (1024*1024), 1)
-        info['file_mtime'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%H:%M:%S')
-        
-        return info
-    except Exception as e:
+        # 未知格式
         return None
+
+
+def _parse_rlfr_metadata(metadata, filepath):
+    """从 RLFR 格式的 JSON 元数据中提取信息"""
+    try:
+        return _do_parse_rlfr(metadata, filepath)
+    except Exception:
+        return None
+
+
+def _do_parse_rlfr(metadata, filepath):
+    info = {}
+    
+    # 游戏信息
+    info['game_version'] = metadata.get('gameVersion', '未知')
+    info['game_type'] = metadata.get('gameType', '未知')
+    
+    # 对局时间
+    game_date = metadata.get('gameDate', '')
+    if game_date:
+        try:
+            dt = datetime.fromisoformat(game_date.replace('Z', '+00:00'))
+            info['game_time'] = dt.strftime('%Y-%m-%d %H:%M')
+        except:
+            info['game_time'] = game_date
+    else:
+        info['game_time'] = '未知'
+    
+    # 地图
+    map_names = {11: '召唤师峡谷', 12: '嚎哭深渊', 30: '扭曲丛林', 
+                 21: '统治战场', 14: '屠夫之桥', 33: '云顶之弈',
+                 1020: '斗魂竞技场'}
+    info['map'] = map_names.get(metadata.get('mapId', 0), f'地图{metadata.get("mapId", "?")}')
+    
+    # 对局时长
+    info['game_length'] = metadata.get('gameLength', 0)
+    
+    # 游戏模式
+    game_mode = metadata.get('gameMode', '')
+    mode_names = {
+        'CLASSIC': '经典模式', 'ARAM': '极地大乱斗', 'TFT': '云顶之弈',
+        'ARENA': '斗魂竞技场', 'PRACTICETOOL': '训练模式',
+        'URF': '无限火力', 'NEXUSBLITZ': '极限闪击',
+        'ONEFORALL': '克隆模式', 'DOOMBOTSTEEMO': '末日人机'
+    }
+    info['game_mode'] = mode_names.get(game_mode, game_mode if game_mode else '未知')
+    
+    # 队列类型
+    queue_types = {
+        400: '单双排', 420: '单双排', 430: '匹配',
+        440: '灵活排', 450: '极地大乱斗', 700: '组排',
+        800: '云顶之弈', 900: '云顶之弈', 1020: '斗魂竞技场'
+    }
+    info['queue'] = queue_types.get(metadata.get('queueId', 0), '其他')
+    
+    # 玩家列表
+    players = []
+    for p in metadata.get('players', []):
+        champion = p.get('championName', '') or p.get('championId', '')
+        name = p.get('name', '未知') or p.get('summonerName', '未知')
+        players.append({'name': name, 'champion': champion})
+    
+    info['players'] = players
+    info['player_count'] = len(players)
+    
+    # 文件信息
+    info['file_size_mb'] = round(os.path.getsize(filepath) / (1024*1024), 1)
+    info['file_mtime'] = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%H:%M:%S')
+    
+    return info
 
 
 # 英雄联盟英雄名 英→中 对照表
