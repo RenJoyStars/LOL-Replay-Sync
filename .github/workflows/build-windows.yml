@@ -24,6 +24,7 @@ jobs:
           python -m nuitka --standalone --onefile --windows-console-mode=disable ^
             --output-dir=dist ^
             --product-name="LOL验证码" ^
+            --file-version="0.4.0" ^
             --assume-yes-for-downloads ^
             --output-filename=captcha_helper.exe ^
             client\captcha_win.py
@@ -34,7 +35,7 @@ jobs:
           python -m nuitka --standalone --onefile --windows-console-mode=disable ^
             --enable-plugin=pyside6 --output-dir=dist ^
             --product-name="英雄联盟对局文件助手" ^
-            --file-version="1.0.0" ^
+            --file-version="0.4.0" ^
             --windows-icon-from-ico=client\icon.ico ^
             --assume-yes-for-downloads ^
             --include-data-files=dist\captcha_helper.exe=./captcha_helper.exe ^
