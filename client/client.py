@@ -332,7 +332,7 @@ def _trigger_replay_via_api(game_id, local_rofl_path=None):
     # 调用 watch API 触发回放
     _lol_api(f"/lol-replays/v1/rofls/{game_id}/watch", method="POST")
     
-    return True, "回放已发送，请查看 LOL 客户端窗口"
+    return True, "回放已发送，请查看英雄联盟客户端窗口"
 
 
 # 英雄联盟英雄名 英→中 对照表
@@ -2040,7 +2040,7 @@ class MainWindow(QWidget):
             self.lol_display.setText(path)
             self.lol_ver_label.setText(f"游戏版本: {ver}")
             self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
-            self.add_log(f"LOL 客户端版本：{ver}")
+            self.add_log(f"英雄联盟客户端版本：{ver}")
         else:
             self.lol_version = None
             self.lol_display.setText(path)
@@ -2075,7 +2075,7 @@ class MainWindow(QWidget):
                         self.lol_display.setText(p)
                         self.lol_ver_label.setText(f"游戏版本: {ver}")
                         self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
-                        self.add_log(f"自动检测到 LOL 客户端：{ver}")
+                        self.add_log(f"自动检测到英雄联盟客户端：{ver}")
                 break
 
     def _auto_search_replay(self):
@@ -2409,7 +2409,7 @@ class MainWindow(QWidget):
                 QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
             if not client_running[0]:
                 parse_all.setEnabled(False)
-                rich_tooltip(parse_all, "请先打开LoL客户端")
+                rich_tooltip(parse_all, "请先打开英雄联盟客户端")
             top.addWidget(parse_all)
             top.addSpacing(6)
 
@@ -2616,31 +2616,34 @@ class MainWindow(QWidget):
                     elif label == "解析":
                         if not client_running[0]:
                             btn.setEnabled(False)
-                            rich_tooltip(btn, "请先打开LoL客户端")
+                            rich_tooltip(btn, "请先打开英雄联盟客户端")
                         else:
                             btn.clicked.connect(lambda *a, fn=fname, m=meta: do_parse_file(fn, m, dialog))
-                            rich_tooltip(btn, "通过LoL客户端API获取完整对局数据")
+                            rich_tooltip(btn, "通过英雄联盟客户端API获取完整对局数据")
                     elif label == "回放":
                         replay_btn = btn
                         if not client_running[0]:
                             btn.setEnabled(False)
-                            rich_tooltip(btn, "请先打开LoL客户端")
+                            rich_tooltip(btn, "请先打开英雄联盟客户端")
                         elif meta is None or not meta.get("game_version"):
                             btn.setEnabled(False)
                             rich_tooltip(btn, "需先下载查看版本信息")
-                        elif hasattr(self, 'lol_version') and self.lol_version:
-                            fv = meta.get("game_version", "")
-                            lv = self.lol_version
-                            major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
-                            if not major_match:
-                                btn.setEnabled(False)
-                                rich_tooltip(btn, "版本不匹配")
-                            else:
-                                btn.clicked.connect(lambda *a, fn=fname, m=meta: play_replay(fn, m, self))
-                                rich_tooltip(btn, f"使用 LOL {lv} 播放")
                         else:
-                            btn.setEnabled(False)
-                            rich_tooltip(btn, "请先设置LOL客户端目录")
+                            # 从 API 获取客户端版本（不需要手动设置目录）
+                            build_info = _lol_api('/system/v1/builds')
+                            if build_info:
+                                lv = build_info.get('version', '')
+                                fv = meta.get("game_version", "")
+                                major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
+                                if not major_match:
+                                    btn.setEnabled(False)
+                                    rich_tooltip(btn, "版本不匹配")
+                                else:
+                                    btn.clicked.connect(lambda *a, fn=fname, m=meta: play_replay(fn, m, self))
+                                    rich_tooltip(btn, f"使用英雄联盟 {lv} 播放")
+                            else:
+                                btn.setEnabled(False)
+                                rich_tooltip(btn, "无法获取客户端版本")
                     hr_btns.addWidget(btn)
                     hr_btns.addSpacing(3)
                 row2.addLayout(hr_btns)
@@ -2714,23 +2717,23 @@ class MainWindow(QWidget):
                 else:
                     # API 不可用时回退到 open -a
                     if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
-                        QMessageBox.warning(dialog, "提示", msg or "请先在主界面设置LOL客户端目录")
+                        QMessageBox.warning(dialog, "提示", msg or "请先在主界面设置英雄联盟客户端目录")
                         return
                     if sys.platform == "darwin":
                         try:
                             subprocess.Popen(["open", "-a", main_win.lol_path, dest])
                             QMessageBox.information(dialog, "回放已发送",
-                                f"已通知 LOL 客户端打开回放：\n{dest}")
+                                f"已通知英雄联盟客户端打开回放：\n{dest}")
                         except Exception as e:
                             QMessageBox.warning(dialog, "失败", str(e))
                     else:
                         QMessageBox.information(dialog, "提示",
-                            "请在 LOL 客户端中手动打开回放")
+                            "请在英雄联盟客户端中手动打开回放")
 
             def do_parse_file(fn, meta, dlg):
                 """单文件解析：重新从 API 获取元数据并刷新界面"""
                 if not _is_lol_client_running():
-                    QMessageBox.warning(dlg, "提示", "请先打开 LoL 客户端")
+                    QMessageBox.warning(dlg, "提示", "请先打开英雄联盟客户端")
                     return
                 local_path = os.path.join(self.current_folder, fn) if hasattr(self, 'current_folder') and self.current_folder else ""
                 if not local_path or not os.path.exists(local_path):
@@ -2754,7 +2757,7 @@ class MainWindow(QWidget):
             def do_parse_all():
                 """一键解析所有文件"""
                 if not _is_lol_client_running():
-                    QMessageBox.warning(dialog, "提示", "请先打开 LoL 客户端")
+                    QMessageBox.warning(dialog, "提示", "请先打开英雄联盟客户端")
                     return
                 if not hasattr(self, 'current_folder') or not self.current_folder:
                     QMessageBox.warning(dialog, "提示", "请先在主界面选择对局文件夹")
