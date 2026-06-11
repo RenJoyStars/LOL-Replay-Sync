@@ -148,7 +148,10 @@ def _extract_game_id(filename):
     return int(m.group(1)) if m else None
 
 
-def _find_lol_client_auth():
+def _is_lol_client_running():
+    """检测 LOL 客户端是否在运行"""
+    port, _ = _find_lol_client_auth()
+    return port is not None
     """查找 LOL 客户端本地 API 的端口和密码。返回 (port, password) 或 None"""
     import os, subprocess, re
     
@@ -2361,6 +2364,20 @@ class MainWindow(QWidget):
                     if f.lower().endswith(".rolf") or f.lower().endswith(".rofl"):
                         local_set.add(f)
 
+            # 检测客户端是否运行
+            client_running = [_is_lol_client_running()]
+            def refresh_client_state():
+                """刷新客户端状态，启用/禁用相关按钮"""
+                was_running = client_running[0]
+                is_running = _is_lol_client_running()
+                client_running[0] = is_running
+                if is_running != was_running:
+                    # 刷新列表以更新按钮状态
+                    dialog.close()
+                    self.show_file_manager()
+                    return True
+                return False
+
             def do_batch_download():
                 if not hasattr(self, 'current_folder') or not self.current_folder:
                     QMessageBox.warning(dialog, "提示", "请先在主界面选择对局文件所在文件夹")
@@ -2388,6 +2405,18 @@ class MainWindow(QWidget):
 
             top.addWidget(batch_dl)
             top.addSpacing(6)
+
+            # 一键解析
+            parse_all = QPushButton("一键解析")
+            parse_all.setStyleSheet("""QPushButton { background-color: #805ad5; color: white; border: none;
+                border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
+                QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
+            if not client_running[0]:
+                parse_all.setEnabled(False)
+                rich_tooltip(parse_all, "请先打开LoL客户端")
+            top.addWidget(parse_all)
+            top.addSpacing(6)
+
             top.addWidget(batch_del)
             top.addSpacing(6)
             top.addWidget(sel_all)
@@ -2521,11 +2550,20 @@ class MainWindow(QWidget):
                     if meta['game_length'] and meta['game_length'] > 0:
                         info_parts.append(f"时长：{int(meta['game_length'])//60}分钟")
                     if meta.get('map'):
-                        info_parts.append(f"地图：{meta['map']}")
+                        map_val = meta['map']
+                        if not client_running[0] and map_val == '未知':
+                            map_val = '需要打开客户端进行解析'
+                        info_parts.append(f"地图：{map_val}")
                     if meta.get('game_mode'):
-                        info_parts.append(f"模式：{meta['game_mode']}")
+                        mode_val = meta['game_mode']
+                        if not client_running[0] and mode_val == '未知':
+                            mode_val = '需要打开客户端进行解析'
+                        info_parts.append(f"模式：{mode_val}")
                     if meta.get('queue'):
-                        info_parts.append(f"队列：{meta['queue']}")
+                        queue_val = meta['queue']
+                        if not client_running[0] and queue_val == '未知':
+                            queue_val = '需要打开客户端进行解析'
+                        info_parts.append(f"队列：{queue_val}")
                     if info_parts:
                         iw = QWidget()
                         iw.setStyleSheet("background-color: #edf2f7; border-radius: 3px;")
@@ -2566,17 +2604,17 @@ class MainWindow(QWidget):
                 hr_btns = QHBoxLayout()
                 hr_btns.setSpacing(4)
                 hr_btns.addStretch(1)
+
+                replay_btn = None  # 保存回放按钮引用用于后续状态刷新
                 for label, color, hover in [
                     ("另存为", "#48bb78", "#38a169"),
                     ("删除", "#f56565", "#e53e3e"),
                     ("重命名", "#4299e1", "#3182ce"),
+                    ("解析", "#38b2ac", "#319795"),
                     ("回放", "#805ad5", "#6b46c1"),
                 ]:
                     btn = QPushButton(label)
-                    if label == "回放":
-                        btn.setStyleSheet(f"QPushButton{{background:{color};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hover};}}QPushButton:disabled{{background:#a0aec0;color:#e2e8f0;}}")
-                    else:
-                        btn.setStyleSheet(f"QPushButton{{background:{color};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hover};}}")
+                    btn.setStyleSheet(f"QPushButton{{background:{color};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hover};}}QPushButton:disabled{{background:#a0aec0;color:#e2e8f0;}}")
                     btn.setFixedHeight(26)
                     if label == "另存为":
                         btn.clicked.connect(lambda *a, fn=fname: save_file(fn, self.token, dialog))
@@ -2584,9 +2622,19 @@ class MainWindow(QWidget):
                         btn.clicked.connect(lambda *a, fn=fname, r=row: del_file(fn, r, self.token, dialog))
                     elif label == "重命名":
                         btn.clicked.connect(lambda *a, fn=fname: rename_file(fn, self.token, dialog))
+                    elif label == "解析":
+                        if not client_running[0]:
+                            btn.setEnabled(False)
+                            rich_tooltip(btn, "请先打开LoL客户端")
+                        else:
+                            btn.clicked.connect(lambda *a, fn=fname, m=meta: do_parse_file(fn, m, dialog))
+                            rich_tooltip(btn, "通过LoL客户端API获取完整对局数据")
                     elif label == "回放":
-                        btn.clicked.connect(lambda *a, fn=fname, m=meta: play_replay(fn, m, self))
-                        if meta is None or not meta.get("game_version"):
+                        replay_btn = btn
+                        if not client_running[0]:
+                            btn.setEnabled(False)
+                            rich_tooltip(btn, "请先打开LoL客户端")
+                        elif meta is None or not meta.get("game_version"):
                             btn.setEnabled(False)
                             rich_tooltip(btn, "需先下载查看版本信息")
                         elif hasattr(self, 'lol_version') and self.lol_version:
@@ -2597,6 +2645,7 @@ class MainWindow(QWidget):
                                 btn.setEnabled(False)
                                 rich_tooltip(btn, "版本不匹配")
                             else:
+                                btn.clicked.connect(lambda *a, fn=fname, m=meta: play_replay(fn, m, self))
                                 rich_tooltip(btn, f"使用 LOL {lv} 播放")
                         else:
                             btn.setEnabled(False)
@@ -2686,6 +2735,58 @@ class MainWindow(QWidget):
                     else:
                         QMessageBox.information(dialog, "提示",
                             "请在 LOL 客户端中手动打开回放")
+
+            def do_parse_file(fn, meta, dlg):
+                """单文件解析：重新从 API 获取元数据并刷新界面"""
+                if not _is_lol_client_running():
+                    QMessageBox.warning(dlg, "提示", "请先打开 LoL 客户端")
+                    return
+                local_path = os.path.join(self.current_folder, fn) if hasattr(self, 'current_folder') and self.current_folder else ""
+                if not local_path or not os.path.exists(local_path):
+                    QMessageBox.warning(dlg, "提示", "请先下载文件到本地")
+                    return
+                try:
+                    new_meta = parse_rolf_metadata(local_path)
+                    if new_meta:
+                        QMessageBox.information(dlg, "解析完成",
+                            f"文件: {fn}\n"
+                            f"模式: {new_meta.get('game_mode', '未知')}\n"
+                            f"地图: {new_meta.get('map', '未知')}\n"
+                            f"时长: {new_meta.get('game_length', 0)}秒\n"
+                            f"英雄数: {new_meta.get('player_count', 0)}\n"
+                            f"版本: {new_meta.get('game_version', '未知')}")
+                    else:
+                        QMessageBox.warning(dlg, "解析失败", "无法解析此文件")
+                except Exception as ex:
+                    QMessageBox.warning(dlg, "解析错误", str(ex))
+
+            def do_parse_all():
+                """一键解析所有文件"""
+                if not _is_lol_client_running():
+                    QMessageBox.warning(dialog, "提示", "请先打开 LoL 客户端")
+                    return
+                if not hasattr(self, 'current_folder') or not self.current_folder:
+                    QMessageBox.warning(dialog, "提示", "请先在主界面选择对局文件夹")
+                    return
+                count = 0
+                failed = 0
+                for fn in fnames:
+                    local_path = os.path.join(self.current_folder, fn)
+                    if os.path.exists(local_path):
+                        try:
+                            parse_rolf_metadata(local_path)
+                            count += 1
+                        except:
+                            failed += 1
+                msg = f"已解析 {count} 个文件"
+                if failed:
+                    msg += f"，{failed} 个失败"
+                QMessageBox.information(dialog, "一键解析完成", msg)
+                if count > 0:
+                    dialog.close()
+                    self.show_file_manager()
+
+            parse_all.clicked.connect(do_parse_all)
 
             def save_file(fn, tok, dlg):
                 sp, _ = QFileDialog.getSaveFileName(dlg, "保存文件", fn, "LOL Replay (*.rofl);;所有文件 (*)")
