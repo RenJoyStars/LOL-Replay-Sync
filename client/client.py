@@ -25,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
+import tempfile
+import shutil
 
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
@@ -309,7 +311,6 @@ def _trigger_replay_via_api(game_id, local_rofl_path=None):
     将 rofl 文件复制到客户端回放目录，然后调用 watch API。
     返回 (success, message)
     """
-    import shutil
     
     # 获取回放目录
     replay_dir = None
@@ -2692,43 +2693,46 @@ class MainWindow(QWidget):
 
 
             def play_replay(fn, meta, main_win):
-                """通过 LOL 客户端 API 触发回放"""
-                game_id = meta.get('game_id') if meta else None
-                
-                if not game_id:
-                    # 从文件名提取
-                    game_id = _extract_game_id(fn)
-                
-                if not game_id:
-                    QMessageBox.warning(dialog, "提示", "无法从此文件提取游戏 ID")
-                    return
-                
-                # 先下载文件到本地
-                dest = os.path.join(tempfile.gettempdir(), fn)
-                ok, _ = ServerAPI.download_file(fn, main_win.token, dest)
-                if not ok:
-                    QMessageBox.warning(dialog, "失败", "下载文件失败")
-                    return
-                
-                # 通过 API 触发回放
-                success, msg = _trigger_replay_via_api(game_id, dest)
-                if success:
-                    QMessageBox.information(dialog, "回放", msg)
-                else:
-                    # API 不可用时回退到 open -a
-                    if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
-                        QMessageBox.warning(dialog, "提示", msg or "请先在主界面设置英雄联盟客户端目录")
+                """通过英雄联盟客户端 API 触发回放"""
+                try:
+                    game_id = meta.get('game_id') if meta else None
+                    
+                    if not game_id:
+                        # 从文件名提取
+                        game_id = _extract_game_id(fn)
+                    
+                    if not game_id:
+                        QMessageBox.warning(dialog, "提示", "无法从此文件提取游戏 ID")
                         return
-                    if sys.platform == "darwin":
-                        try:
-                            subprocess.Popen(["open", "-a", main_win.lol_path, dest])
-                            QMessageBox.information(dialog, "回放已发送",
-                                f"已通知英雄联盟客户端打开回放：\n{dest}")
-                        except Exception as e:
-                            QMessageBox.warning(dialog, "失败", str(e))
+                    
+                    # 先下载文件到本地
+                    dest = os.path.join(tempfile.gettempdir(), fn)
+                    ok, result = ServerAPI.download_file(fn, main_win.token, dest)
+                    if not ok:
+                        QMessageBox.warning(dialog, "失败", f"下载文件失败: {result}")
+                        return
+                    
+                    # 通过 API 触发回放
+                    success, msg = _trigger_replay_via_api(game_id, dest)
+                    if success:
+                        QMessageBox.information(dialog, "回放", msg)
                     else:
-                        QMessageBox.information(dialog, "提示",
-                            "请在英雄联盟客户端中手动打开回放")
+                        # API 不可用时回退到 open -a
+                        if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
+                            QMessageBox.warning(dialog, "提示", msg or "请先在主界面设置英雄联盟客户端目录")
+                            return
+                        if sys.platform == "darwin":
+                            try:
+                                subprocess.Popen(["open", "-a", main_win.lol_path, dest])
+                                QMessageBox.information(dialog, "回放已发送",
+                                    f"已通知英雄联盟客户端打开回放：\n{dest}")
+                            except Exception as e:
+                                QMessageBox.warning(dialog, "失败", str(e))
+                        else:
+                            QMessageBox.information(dialog, "提示",
+                                "请在英雄联盟客户端中手动打开回放")
+                except Exception as ex:
+                    QMessageBox.warning(dialog, "错误", f"回放异常: {ex}")
 
             def do_parse_file(fn, meta, dlg):
                 """单文件解析：重新从 API 获取元数据并刷新界面"""
