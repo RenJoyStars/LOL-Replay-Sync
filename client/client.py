@@ -453,6 +453,11 @@ def detect_lol_version(lol_path):
                         return ver.split(" ")[0]
         elif sys.platform == "win32":
             import subprocess
+            # 优先通过 LCU API 获取精确版本
+            precise = detect_lol_version_precise()
+            if precise:
+                return precise
+            # 回退：读 LeagueClient.exe 的 ProductVersion
             for exe in ["LeagueClient.exe"]:
                 exe_path = os.path.join(lol_path, exe)
                 if os.path.exists(exe_path):
@@ -2419,9 +2424,13 @@ class MainWindow(QWidget):
                 if not os.path.isdir(self.current_folder):
                     QMessageBox.warning(dialog, "提示", "主界面选定的文件夹不存在")
                     return
-                missing = [f for f in fnames if f not in local_set]
+                selected = [f for i, f in enumerate(fnames) if checked[i]]
+                if not selected:
+                    QMessageBox.warning(dialog, "提示", "请先勾选要下载的文件")
+                    return
+                missing = [f for f in selected if f not in local_set]
                 if not missing:
-                    QMessageBox.information(dialog, "提示", "所有文件已下载到本地")
+                    QMessageBox.information(dialog, "提示", "所选文件均已下载到本地")
                     return
                 batch_dl.setEnabled(False)
                 success = 0
@@ -2797,16 +2806,20 @@ class MainWindow(QWidget):
                     QMessageBox.warning(dlg, "解析错误", str(ex))
 
             def do_parse_all():
-                """一键解析所有文件"""
+                """解析选中的文件"""
                 if not _is_lol_client_running():
                     QMessageBox.warning(dialog, "提示", "请先打开英雄联盟客户端")
                     return
                 if not hasattr(self, 'current_folder') or not self.current_folder:
                     QMessageBox.warning(dialog, "提示", "请先在主界面选择对局文件夹")
                     return
+                selected = [f for i, f in enumerate(fnames) if checked[i]]
+                if not selected:
+                    QMessageBox.warning(dialog, "提示", "请先勾选要解析的文件")
+                    return
                 count = 0
                 failed = 0
-                for fn in fnames:
+                for fn in selected:
                     local_path = os.path.join(self.current_folder, fn)
                     if os.path.exists(local_path):
                         try:
