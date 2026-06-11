@@ -148,10 +148,7 @@ def _extract_game_id(filename):
     return int(m.group(1)) if m else None
 
 
-def _is_lol_client_running():
-    """检测 LOL 客户端是否在运行"""
-    port, _ = _find_lol_client_auth()
-    return port is not None
+def _find_lol_client_auth():
     """查找 LOL 客户端本地 API 的端口和密码。返回 (port, password) 或 None"""
     import os, subprocess, re
     
@@ -184,6 +181,12 @@ def _is_lol_client_running():
     except:
         pass
     return None, None
+
+
+def _is_lol_client_running():
+    """检测 LOL 客户端是否在运行"""
+    port, _ = _find_lol_client_auth()
+    return port is not None
 
 
 def _lol_api(path, method="GET", body=None):
