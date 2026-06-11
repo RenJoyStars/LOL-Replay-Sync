@@ -206,15 +206,18 @@ def _lol_api(path, method="GET", body=None):
         ctx.verify_mode = ssl.CERT_NONE
         conn = http.client.HTTPSConnection("127.0.0.1", int(port), context=ctx, timeout=3)
         headers = {"Authorization": "Basic " + encoded}
-        if body:
+        if body is not None:
             headers["Content-Type"] = "application/json"
             conn.request(method, path, json.dumps(body), headers)
         else:
             conn.request(method, path, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
-        if resp.status != 200:
+        # 2xx = 成功，204 = 成功但无响应体
+        if resp.status >= 300:
             return None
+        if resp.status == 204 or not data:
+            return {}  # 空字典代表成功
         return json.loads(data.decode('utf-8', errors='replace'))
     except:
         return None
@@ -337,7 +340,7 @@ def _trigger_replay_via_api(game_id, local_rofl_path=None):
     
     # 尝试 API 触发（可能不弹 UI，作为辅助手段）
     try:
-        _lol_api(f"/lol-replays/v1/rofls/{game_id}/watch", method="POST")
+        _lol_api(f"/lol-replays/v1/rofls/{game_id}/watch", method="POST", body={})
     except:
         pass
     
@@ -2704,7 +2707,7 @@ class MainWindow(QWidget):
 
 
             def play_replay(fn, meta, main_win):
-                """下载 rofl 到回放目录，用 open 唤起游戏播放"""
+                """通过 LCU API 触发回放（LCU 自动带认证参数启动游戏引擎）"""
                 try:
                     game_id = meta.get('game_id') if meta else None
                     if not game_id:
@@ -2721,37 +2724,28 @@ class MainWindow(QWidget):
                     if not replay_dir and sys.platform == "darwin":
                         replay_dir = os.path.expanduser("~/Documents/League of Legends/Replays")
                     if not replay_dir:
-                        replay_dir = tempfile.gettempdir()
+                        QMessageBox.warning(dialog, "提示", "无法获取回放目录，请确认英雄联盟客户端正在运行")
+                        return
                     
                     os.makedirs(replay_dir, exist_ok=True)
                     dest = os.path.join(replay_dir, fn)
                     
-                    # 下载文件
+                    # 下载文件到回放目录
                     ok, result = ServerAPI.download_file(fn, main_win.token, dest)
                     if not ok:
                         QMessageBox.warning(dialog, "失败", f"下载文件失败: {result}")
                         return
                     
-                    # 方式1: 用 open -a 唤起游戏播放（最可靠）
-                    lol_app = getattr(main_win, 'lol_path', None) or "/Applications/League of Legends.app"
-                    if sys.platform == "darwin" and os.path.exists(lol_app):
-                        subprocess.Popen(["open", "-a", lol_app, dest])
-                        QMessageBox.information(dialog, "回放已发送",
-                            f"已通知英雄联盟客户端打开回放\n文件: {dest}")
-                    elif sys.platform == "win32":
-                        subprocess.Popen(["start", "", dest], shell=True)
-                        QMessageBox.information(dialog, "回放已发送",
-                            f"已打开回放文件: {dest}")
+                    # 通过 LCU API 触发回放（LCU 会以正确参数启动游戏引擎）
+                    api_result = _lol_api(f"/lol-replays/v1/rofls/{game_id}/watch", method="POST", body={})
+                    if api_result is not None:
+                        QMessageBox.information(dialog, "回放已触发",
+                            f"英雄联盟客户端正在启动回放…\n文件: {fn}")
                     else:
-                        QMessageBox.information(dialog, "提示",
-                            f"文件已下载到:\n{dest}\n请手动用英雄联盟打开")
-                    
-                    # 方式2: 同时通过 API 通知客户端刷新回放列表
-                    try:
-                        _lol_api(f"/lol-replays/v1/rofls/{game_id}/watch", method="POST")
-                    except:
-                        pass
-                        
+                        QMessageBox.warning(dialog, "提示",
+                            f"无法通过客户端 API 触发回放\n文件已下载到:\n{dest}\n请在客户端中手动打开")                       
+                except Exception as ex:
+                    QMessageBox.warning(dialog, "错误", f"回放异常: {ex}")
                 except Exception as ex:
                     QMessageBox.warning(dialog, "错误", f"回放异常: {ex}")
 
