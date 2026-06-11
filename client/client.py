@@ -1233,49 +1233,81 @@ class LoginWindow(QWidget):
 
 def launch_captcha_webkit(parent=None):
     """启动 macOS 原生 WebKit 验证码窗口（使用 Tencent CAPTCHA）"""
-    import subprocess, time, os
+    import os, subprocess
     from urllib.parse import unquote
+    from PySide6.QtCore import QProcess, QTimer, QEventLoop
     
-    result = {"ticket": "", "randstr": ""}
     script_path = os.path.join(os.path.dirname(__file__), "captcha_webkit.py")
     if not os.path.exists(script_path) and getattr(sys, 'frozen', False):
         script_path = os.path.join(os.path.dirname(sys.executable), "captcha_webkit.py")
     if not os.path.exists(script_path):
         QMessageBox.critical(parent, "错误", "验证码内核文件缺失 (captcha_webkit.py)")
-        return result
+        return {"ticket": "", "randstr": ""}
     
     if os.path.exists("/tmp/captcha_result.txt"):
         os.remove("/tmp/captcha_result.txt")
     
-    try:
-        proc = subprocess.Popen([sys.executable, script_path, "0"],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        QMessageBox.critical(parent, "错误", f"启动验证码窗口失败: {e}")
+    result = {"ticket": "", "randstr": ""}
+    done_flag = [False]
+    
+    proc = QProcess()
+    proc.setProgram(sys.executable)
+    proc.setArguments([script_path, "0"])
+    proc.start()
+    
+    if not proc.waitForStarted(5000):
+        QMessageBox.critical(parent, "错误", "启动验证码窗口失败")
         return result
     
-    start = time.time()
-    while time.time() - start < 120:
+    # Non-blocking poll using QTimer + local event loop
+    def check():
         if os.path.exists("/tmp/captcha_result.txt"):
-            with open("/tmp/captcha_result.txt") as f:
-                data = f.read().strip()
-            if data:
-                parts = data.split("&")
-                for p in parts:
-                    if "=" in p:
-                        k, v = p.split("=", 1)
-                        v = unquote(v) if "%" in v else v
-                        if k == "ticket": result["ticket"] = v
-                        elif k == "randstr": result["randstr"] = v
-                break
-        time.sleep(0.2)
-    else:
-        QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
+            try:
+                with open("/tmp/captcha_result.txt") as f:
+                    data = f.read().strip()
+                if data:
+                    parts = data.split("&")
+                    for p in parts:
+                        if "=" in p:
+                            k, v = p.split("=", 1)
+                            v = unquote(v) if "%" in v else v
+                            if k == "ticket": result["ticket"] = v
+                            elif k == "randstr": result["randstr"] = v
+            except:
+                pass
+            done_flag[0] = True
+            try: proc.kill()
+            except: pass
     
-    try: proc.kill()
-    except: pass
-    try: os.remove("/tmp/captcha_result.txt")
-    except: pass
+    timer = QTimer()
+    timer.timeout.connect(check)
+    timer.start(300)
+    
+    # Local event loop that processes Qt events while waiting (max 120s)
+    loop = QEventLoop()
+    QTimer.singleShot(120000, loop.quit)
+    # Stop timer when user clicks close on captcha window
+    def on_proc_finished():
+        timer.stop()
+        done_flag[0] = True
+        loop.quit()
+    proc.finished.connect(on_proc_finished)
+    
+    # Poll in local event loop
+    while not done_flag[0]:
+        if not loop.processEvents():
+            break
+    
+    timer.stop()
+    if not proc.waitForFinished(5000):
+        proc.kill()
+    try:
+        os.remove("/tmp/captcha_result.txt")
+    except:
+        pass
+    
+    if not result.get("ticket"):
+        QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
     
     return result
 
