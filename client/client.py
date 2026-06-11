@@ -412,6 +412,19 @@ def champ_cn(name):
     return CHAMPION_CN.get(name, name)
 
 
+def detect_lol_version_precise():
+    """获取 LOL 精确版本号（优先 LCU API，回退 Info.plist）"""
+    # 优先从 LCU API 获取精确版本
+    try:
+        import json
+        data = _lol_api("/system/v1/builds")
+        if data and data.get("version"):
+            return data["version"]
+    except:
+        pass
+    return None
+
+
 def detect_lol_version(lol_path):
     """检测 LOL 客户端版本号"""
     if not lol_path or not os.path.isdir(lol_path) and not (sys.platform == "darwin" and lol_path.endswith(".app") and os.path.exists(lol_path)):
@@ -1625,6 +1638,11 @@ class MainWindow(QWidget):
             ver = detect_lol_version(saved_lol)
             if ver:
                 self.lol_version = ver
+                # 尝试从 LCU API 获取精确版本
+                precise = detect_lol_version_precise()
+                if precise:
+                    self.lol_version = precise
+                    ver = precise
                 if hasattr(self, 'lol_display'):
                     self.lol_display.setText(saved_lol)
                     self.lol_ver_label.setText(f"游戏版本: {ver}")
@@ -2052,6 +2070,11 @@ class MainWindow(QWidget):
         ver = detect_lol_version(path)
         if ver:
             self.lol_version = ver
+            # 尝试从 LCU API 获取精确版本
+            precise = detect_lol_version_precise()
+            if precise:
+                self.lol_version = precise
+                ver = precise
             self.lol_display.setText(path)
             self.lol_ver_label.setText(f"游戏版本: {ver}")
             self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
