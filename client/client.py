@@ -224,16 +224,26 @@ def champ_cn(name):
 
 def detect_lol_version(lol_path):
     """检测 LOL 客户端版本号"""
-    if not lol_path or not os.path.isdir(lol_path):
+    if not lol_path or not os.path.isdir(lol_path) and not (sys.platform == "darwin" and lol_path.endswith(".app") and os.path.exists(lol_path)):
         return None
     try:
         if sys.platform == "darwin":
-            # Mac: check Info.plist
-            for sub in ["", "LeagueClient.app", "../LeagueClient.app"]:
-                p = os.path.abspath(os.path.join(lol_path, sub, "Contents", "Info.plist"))
-                if os.path.exists(p):
+            # Mac: 进入 Contents/LoL/LeagueClient.app/Contents/Info.plist
+            for base in [lol_path]:
+                # 如果选的是 .app，进去找 LeagueClient
+                inner = os.path.join(base, "Contents", "LoL", "LeagueClient.app", "Contents", "Info.plist")
+                if os.path.exists(inner):
                     import plistlib
-                    with open(p, "rb") as f:
+                    with open(inner, "rb") as f:
+                        plist = plistlib.load(f)
+                    ver = plist.get("CFBundleShortVersionString")
+                    if ver:
+                        return ver
+                # fallback: 外层的 Info.plist
+                outer = os.path.join(base, "Contents", "Info.plist")
+                if os.path.exists(outer):
+                    import plistlib
+                    with open(outer, "rb") as f:
                         plist = plistlib.load(f)
                     ver = plist.get("CFBundleShortVersionString")
                     if ver:
@@ -1800,7 +1810,7 @@ class MainWindow(QWidget):
         import platform
         if platform.system() == "Darwin":
             path, _ = QFileDialog.getOpenFileName(
-                self, "选择英雄联盟客户端 (.app)",
+                self, "选择英雄联盟 .app 文件（如 League of Legends.app）",
                 "/Applications",
                 "应用程序 (*.app);;所有文件 (*)"
             )
