@@ -1650,8 +1650,7 @@ class MainWindow(QWidget):
                     ver = precise
                 if hasattr(self, 'lol_display'):
                     self.lol_display.setText(saved_lol)
-                    self.lol_ver_label.setText(f"游戏版本: {ver}")
-                    self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
+                    self._set_version_label(f"游戏版本: {ver}")
         
         # 自动搜索常用路径（如果还没设置）
         if not self.lol_path or not os.path.isdir(self.lol_path):
@@ -1855,6 +1854,11 @@ class MainWindow(QWidget):
         self.lol_ver_label = QLabel("游戏版本: 未设置")
         self.lol_ver_label.setStyleSheet("color: #d69e2e; font-size: 11px; padding-left: 2px; background: transparent;")
         lol_layout.addWidget(self.lol_ver_label)
+
+        # 版本号提示
+        self.lol_ver_hint = QLabel("💡 上传并解析一次回放文件即可获取精确版本号和详细对局信息")
+        self.lol_ver_hint.setStyleSheet("color: #a0aec0; font-size: 10px; font-style: italic; padding-left: 2px; background: transparent;")
+        lol_layout.addWidget(self.lol_ver_hint)
 
         # LOL 客户端路径提示
         lol_tip = QLabel("英雄联盟客户端默认安装位置：")
@@ -2081,14 +2085,12 @@ class MainWindow(QWidget):
                 self.lol_version = precise
                 ver = precise
             self.lol_display.setText(path)
-            self.lol_ver_label.setText(f"游戏版本: {ver}")
-            self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
+            self._set_version_label(f"游戏版本: {ver}")
             self.add_log(f"英雄联盟客户端版本：{ver}")
         else:
             self.lol_version = None
             self.lol_display.setText(path)
-            self.lol_ver_label.setText("游戏版本: 无法识别")
-            self.lol_ver_label.setStyleSheet("color: #e53e3e; font-size: 11px; padding-left: 2px; background: transparent;")
+            self._set_version_label("游戏版本: 无法识别")
             self.add_log(f"LOL 目录已选，但读不到版本：{path}")
 
     def _auto_search_lol(self):
@@ -2116,8 +2118,7 @@ class MainWindow(QWidget):
                     self.lol_version = ver
                     if hasattr(self, 'lol_display'):
                         self.lol_display.setText(p)
-                        self.lol_ver_label.setText(f"游戏版本: {ver}")
-                        self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
+                        self._set_version_label(f"游戏版本: {ver}")
                         self.add_log(f"自动检测到英雄联盟客户端：{ver}")
                 break
 
@@ -2257,6 +2258,16 @@ class MainWindow(QWidget):
     def update_status(self, text):
         pass
 
+    def _set_version_label(self, ver_text):
+        """统一设置版本号显示，自动控制提示文字显隐"""
+        self.lol_ver_label.setText(ver_text)
+        # 精确版本（4段如 16.12.785.1316）隐藏提示
+        is_precise = ver_text.count('.') >= 3 and not ver_text.startswith('游戏版本: 未')
+        color = "#48bb78" if is_precise else ("#e53e3e" if "无法" in ver_text else "#d69e2e")
+        self.lol_ver_label.setStyleSheet(f"color: {color}; font-size: 11px; padding-left: 2px; background: transparent;")
+        if hasattr(self, 'lol_ver_hint'):
+            self.lol_ver_hint.setVisible(not is_precise)
+
     def logout(self):
         """退出登录，返回登录界面（清除登录信息防死循环）"""
         self.config["token"] = ""
@@ -2393,6 +2404,7 @@ class MainWindow(QWidget):
             batch_dl.setStyleSheet("""QPushButton { background-color: #48bb78; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
                 QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
+            batch_dl.setEnabled(False)
 
             uploaded = ServerAPI.list_uploaded_files(self.token)
             fnames = sorted([f["filename"] for f in uploaded], reverse=True)
@@ -2454,9 +2466,8 @@ class MainWindow(QWidget):
             parse_all.setStyleSheet("""QPushButton { background-color: #805ad5; color: white; border: none;
                 border-radius: 6px; padding: 8px 16px; font-size: 12px; font-weight: bold; }
                 QPushButton:disabled { background-color: #e2e8f0; color: #a0aec0; }""")
-            if not client_running[0]:
-                parse_all.setEnabled(False)
-                rich_tooltip(parse_all, "请先打开英雄联盟客户端")
+            parse_all.setEnabled(False)
+            rich_tooltip(parse_all, "请先勾选要解析的文件")
             top.addWidget(parse_all)
             top.addSpacing(6)
 
@@ -2556,7 +2567,10 @@ class MainWindow(QWidget):
                 def cc(r):
                     def _(s):
                         checked[r] = s == 2
-                        batch_del.setEnabled(any(checked))
+                        any_checked = any(checked)
+                        batch_del.setEnabled(any_checked)
+                        batch_dl.setEnabled(any_checked)
+                        parse_all.setEnabled(any_checked and client_running[0])
                     return _
                 cb.stateChanged.connect(cc(row))
                 r1.addWidget(cb)
@@ -2778,8 +2792,16 @@ class MainWindow(QWidget):
                             f"无法通过客户端 API 触发回放\n文件已下载到:\n{dest}\n请在客户端中手动打开")                       
                 except Exception as ex:
                     QMessageBox.warning(dialog, "错误", f"回放异常: {ex}")
-                except Exception as ex:
-                    QMessageBox.warning(dialog, "错误", f"回放异常: {ex}")
+
+            def _update_version_from_meta(meta):
+                """如果当前主页面版本不够精确，从 ROFL 元数据更新"""
+                gv = meta.get('game_version', '') if meta else ''
+                if gv and gv != '未知':
+                    current = getattr(self, 'lol_version', None)
+                    # 只有当前版本不精确（少于4段，如 16.12.0）时才更新
+                    if not current or current.count('.') < 3:
+                        self.lol_version = gv
+                        self._set_version_label(f"游戏版本: {gv}")
 
             def do_parse_file(fn, meta, dlg):
                 """单文件解析：重新从 API 获取元数据并刷新界面"""
@@ -2793,6 +2815,7 @@ class MainWindow(QWidget):
                 try:
                     new_meta = parse_rolf_metadata(local_path)
                     if new_meta:
+                        _update_version_from_meta(new_meta)
                         QMessageBox.information(dlg, "解析完成",
                             f"文件: {fn}\n"
                             f"模式: {new_meta.get('game_mode', '未知')}\n"
@@ -2823,7 +2846,9 @@ class MainWindow(QWidget):
                     local_path = os.path.join(self.current_folder, fn)
                     if os.path.exists(local_path):
                         try:
-                            parse_rolf_metadata(local_path)
+                            meta = parse_rolf_metadata(local_path)
+                            if meta:
+                                _update_version_from_meta(meta)
                             count += 1
                         except:
                             failed += 1
