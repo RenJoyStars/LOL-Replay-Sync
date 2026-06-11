@@ -2442,40 +2442,43 @@ class MainWindow(QWidget):
 
 
             def play_replay(fn, meta, main_win):
-                """调用 LOL 客户端播放回放"""
+                """Mac: 下载到桌面用 Finder 打开；Win: 直接调用 LeagueClient.exe"""
                 if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
                     QMessageBox.warning(dialog, "提示", "请先在主界面设置LOL客户端目录")
                     return
-                import tempfile
-                tmp_dir = tempfile.gettempdir()
-                local_path = os.path.join(tmp_dir, fn)
-                ok, _ = ServerAPI.download_file(fn, main_win.token, local_path)
-                if not ok:
-                    QMessageBox.warning(dialog, "失败", "下载文件失败")
-                    return
-                try:
-                    if sys.platform == "darwin":
-                        # Mac: 通过 LeagueClient 二进制播放
-                        # 路径: xxx.app/Contents/LoL/LeagueClient.app/Contents/MacOS/LeagueClient
-                        import subprocess
-                        client_bin = os.path.join(
-                            main_win.lol_path,
-                            "Contents", "LoL", "LeagueClient.app",
-                            "Contents", "MacOS", "LeagueClient"
+                if sys.platform == "darwin":
+                    # Mac: 下载到桌面，Reveal in Finder，用户拖入 LOL 客户端
+                    dest = os.path.join(os.path.expanduser("~/Desktop"), fn)
+                    ok, _ = ServerAPI.download_file(fn, main_win.token, dest)
+                    if not ok:
+                        QMessageBox.warning(dialog, "失败", "下载文件失败")
+                        return
+                    try:
+                        subprocess.Popen(["open", "-R", dest])
+                        QMessageBox.information(
+                            dialog, "回放文件已下载",
+                            f"文件已保存到桌面：\n{dest}\n\n"
+                            "请前往桌面将文件拖入 LOL 客户端窗口即可播放。"
                         )
-                        if os.path.exists(client_bin):
-                            subprocess.Popen([client_bin, local_path],
-                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        else:
-                            # fallback: 用 open -a 尝试
-                            subprocess.Popen(["open", "-a", main_win.lol_path, "--args", local_path],
-                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    elif sys.platform == "win32":
-                        exe_path = os.path.join(main_win.lol_path, "LeagueClient.exe")
-                        import subprocess
+                    except Exception as e:
+                        QMessageBox.warning(dialog, "失败", str(e))
+                else:
+                    # Win: 直接用 LeagueClient.exe 打开
+                    exe_path = os.path.join(main_win.lol_path, "LeagueClient.exe")
+                    if not os.path.exists(exe_path):
+                        QMessageBox.warning(dialog, "失败", f"找不到 LeagueClient.exe：\n{exe_path}")
+                        return
+                    import tempfile
+                    tmp_dir = tempfile.gettempdir()
+                    local_path = os.path.join(tmp_dir, fn)
+                    ok, _ = ServerAPI.download_file(fn, main_win.token, local_path)
+                    if not ok:
+                        QMessageBox.warning(dialog, "失败", "下载文件失败")
+                        return
+                    try:
                         subprocess.Popen([exe_path, local_path])
-                except Exception as e:
-                    QMessageBox.warning(dialog, "失败", f"无法打开回放：{e}")
+                    except Exception as e:
+                        QMessageBox.warning(dialog, "失败", f"无法打开回放：{e}")
 
             def save_file(fn, tok, dlg):
                 sp, _ = QFileDialog.getSaveFileName(dlg, "保存文件", fn, "LOL Replay (*.rofl);;所有文件 (*)")
