@@ -1254,6 +1254,7 @@ def launch_captcha_webkit(parent=None):
     result = {"ticket": "", "randstr": ""}
     
     # 启子进程 — 用当前 Python（pywebview 已安装在系统 Python）
+    import subprocess
     py_bin = sys.executable
     proc = subprocess.Popen([py_bin, script_path],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
