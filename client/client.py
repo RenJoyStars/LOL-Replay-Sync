@@ -1796,28 +1796,41 @@ class MainWindow(QWidget):
             save_config(self.config)
 
     def select_lol_folder(self):
-        """选择 LOL 客户端目录，检测版本"""
-        folder = QFileDialog.getExistingDirectory(
-            self, "选择英雄联盟客户端所在目录"
-        )
-        if not folder:
+        """选择 LOL 客户端目录，检测版本（macOS 允许选 .app 包）"""
+        import platform
+        if platform.system() == "Darwin":
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择英雄联盟客户端 (.app)",
+                "/Applications",
+                "应用程序 (*.app);;所有文件 (*)"
+            )
+            # 也允许直接选目录
+            if not path:
+                path = QFileDialog.getExistingDirectory(
+                    self, "或选择英雄联盟客户端所在目录"
+                )
+        else:
+            path = QFileDialog.getExistingDirectory(
+                self, "选择英雄联盟客户端所在目录"
+            )
+        if not path:
             return
-        self.lol_path = folder
-        self.config["lol_path"] = folder
+        self.lol_path = path
+        self.config["lol_path"] = path
         save_config(self.config)
-        ver = detect_lol_version(folder)
+        ver = detect_lol_version(path)
         if ver:
             self.lol_version = ver
-            self.lol_display.setText(folder)
+            self.lol_display.setText(path)
             self.lol_ver_label.setText(f"游戏版本: {ver}")
             self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
             self.add_log(f"LOL 客户端版本：{ver}")
         else:
             self.lol_version = None
-            self.lol_display.setText(folder)
+            self.lol_display.setText(path)
             self.lol_ver_label.setText("游戏版本: 无法识别")
             self.lol_ver_label.setStyleSheet("color: #e53e3e; font-size: 11px; padding-left: 2px; background: transparent;")
-            self.add_log(f"LOL 目录已选，但读不到版本：{folder}")
+            self.add_log(f"LOL 目录已选，但读不到版本：{path}")
 
     def _auto_search_lol(self):
         """自动搜索常见的 LOL 客户端安装路径"""
