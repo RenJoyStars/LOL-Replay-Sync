@@ -1508,6 +1508,12 @@ class MainWindow(QWidget):
                     self.lol_ver_label.setText(f"游戏版本: {ver}")
                     self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
         
+        # 自动搜索常用路径（如果还没设置）
+        if not self.lol_path or not os.path.isdir(self.lol_path):
+            self._auto_search_lol()
+        if not hasattr(self, 'current_folder') or not self.current_folder or not os.path.isdir(self.current_folder):
+            self._auto_search_replay()
+
         # 系统托盘
         self.setup_tray()
 
@@ -1619,7 +1625,7 @@ class MainWindow(QWidget):
         folder_card_layout.setContentsMargins(0, 0, 0, 0)
         folder_card_layout.setSpacing(8)
 
-        folder_title = QLabel("游戏对局文件保存位置")
+        folder_title = QLabel("回放文件目录")
         folder_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
         folder_card_layout.addWidget(folder_title)
 
@@ -1683,7 +1689,7 @@ class MainWindow(QWidget):
         lol_layout.setContentsMargins(0, 0, 0, 0)
         lol_layout.setSpacing(6)
 
-        lol_title = QLabel("播放对局文件客户端目录")
+        lol_title = QLabel("客户端目录")
         lol_title.setStyleSheet("color: #2d3748; font-size: 14px; font-weight: bold; background: transparent;")
         lol_layout.addWidget(lol_title)
 
@@ -1712,7 +1718,7 @@ class MainWindow(QWidget):
         lol_tip2 = QLabel("Windows: C:\\Riot Games\\League of Legends （找 LeagueClient.exe）")
         lol_tip2.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
         lol_layout.addWidget(lol_tip2)
-        lol_tip3 = QLabel("Mac: /Applications/League of Legends.app （或你安装的位置）")
+        lol_tip3 = QLabel("Mac(国服/国际服): /Applications/League of Legends.app")
         lol_tip3.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
         lol_layout.addWidget(lol_tip3)
 
@@ -1921,6 +1927,58 @@ class MainWindow(QWidget):
             self.lol_ver_label.setText("游戏版本: 无法识别")
             self.lol_ver_label.setStyleSheet("color: #e53e3e; font-size: 11px; padding-left: 2px; background: transparent;")
             self.add_log(f"LOL 目录已选，但读不到版本：{folder}")
+
+    def _auto_search_lol(self):
+        """自动搜索常见的 LOL 客户端安装路径"""
+        common_paths = []
+        if sys.platform == "darwin":
+            common_paths = [
+                "/Applications/League of Legends.app",
+                os.path.expanduser("~/Applications/League of Legends.app"),
+                "/Applications/WeChatGame/League of Legends.app",
+            ]
+        elif sys.platform == "win32":
+            common_paths = [
+                "C:\\Program Files\\WeGame\\league_of_legends",
+                "C:\\Riot Games\\League of Legends",
+                os.path.expanduser("~\\AppData\\Local\\Riot Games\\League of Legends"),
+            ]
+        for p in common_paths:
+            if os.path.isdir(p):
+                self.lol_path = p
+                self.config["lol_path"] = p
+                save_config(self.config)
+                ver = detect_lol_version(p)
+                if ver:
+                    self.lol_version = ver
+                    if hasattr(self, 'lol_display'):
+                        self.lol_display.setText(p)
+                        self.lol_ver_label.setText(f"游戏版本: {ver}")
+                        self.lol_ver_label.setStyleSheet("color: #48bb78; font-size: 11px; padding-left: 2px; background: transparent;")
+                        self.add_log(f"自动检测到 LOL 客户端：{ver}")
+                break
+
+    def _auto_search_replay(self):
+        """自动搜索常见的回放文件存放路径"""
+        common_paths = []
+        if sys.platform == "darwin":
+            common_paths = [
+                os.path.expanduser("~/Documents/League of Legends/Replays"),
+                os.path.expanduser("~/Documents/League of Legends/Replays/"),
+            ]
+        elif sys.platform == "win32":
+            common_paths = [
+                os.path.expanduser("~\\Documents\\League of Legends\\Replays"),
+                "C:\\Program Files\\WeGame\\league_of_legends\\Replays",
+            ]
+        for p in common_paths:
+            if os.path.isdir(p):
+                self.current_folder = p
+                self.folder_display.setText(p)
+                self.config["watch_folder"] = p
+                save_config(self.config)
+                self.add_log(f"自动检测到回放目录：{p}")
+                break
 
     def toggle_sync(self):
         """开始同步 — 对比本地和云端，上传缺失文件"""
@@ -2626,6 +2684,9 @@ def main():
             padding: 6px 10px;
             font-size: 12px;
             font-family: system-ui;
+        }
+        QPushButton:hover {
+            border: 2px solid rgba(0,0,0,0.25) !important;
         }
     """)
     
