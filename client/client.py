@@ -329,17 +329,10 @@ def _trigger_replay_via_api(game_id, local_rofl_path=None):
             except:
                 pass
     
-    # 调用 watch API
-    result = _lol_api(f"/lol-replays/v1/metadata/{game_id}")
-    if result and result.get('state') in ('watch', 'downloading'):
-        # 如果已经是 watch 状态，客户端会自动在界面显示回放入口
-        return True, "回放已就绪，请点击 LOL 客户端中的「观看」按钮"
+    # 调用 watch API 触发回放
+    _lol_api(f"/lol-replays/v1/rofls/{game_id}/watch", method="POST")
     
-    # 尝试下载
-    _lol_api(f"/lol-replays/v1/rofls/{game_id}/download", method="POST")
-    
-    return True, ("回放请求已发送，请查看 LOL 客户端\n"
-                   f"（如未自动弹出，请手动点击「生涯-对战记录-下载回放」）")
+    return True, "回放已发送，请查看 LOL 客户端窗口"
 
 
 # 英雄联盟英雄名 英→中 对照表
@@ -2562,11 +2555,6 @@ class MainWindow(QWidget):
                         if not client_running[0] and mode_val == '未知':
                             mode_val = '需要打开客户端进行解析'
                         info_parts.append(f"模式：{mode_val}")
-                    if meta.get('queue'):
-                        queue_val = meta['queue']
-                        if not client_running[0] and queue_val == '未知':
-                            queue_val = '需要打开客户端进行解析'
-                        info_parts.append(f"队列：{queue_val}")
                     if info_parts:
                         iw = QWidget()
                         iw.setStyleSheet("background-color: #edf2f7; border-radius: 3px;")
