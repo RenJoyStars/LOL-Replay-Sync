@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Windows: 独立子进程 — 本地 HTTP 服务 + pywebview(Edge WebView2) → 写 %TEMP%/lol_captcha_result.txt 后退出"""
+"""Windows: 独立子进程 — 本地 HTTP 服务 + pywebview(Edge WebView2) → 写%TEMP%/lol_captcha_result.txt 后退出
+可作为 Python 脚本运行，也可用 Nuitka 编译为 exe 独立运行"""
 import sys, json, socket, threading, os, time, tempfile
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
 aid = "197104175"
 RESULT_FILE = os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
@@ -31,7 +31,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK")
-            with open(RESULT_FILE, "w") as f:
+            with open(RESULT_FILE, "w", encoding="utf-8") as f:
                 f.write(qs)
             return
         self.send_response(200)
@@ -40,6 +40,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(HTML_PAGE.encode("utf-8"))
     def log_message(self, *a): pass
 
+# 清理旧结果
+if os.path.exists(RESULT_FILE):
+    os.remove(RESULT_FILE)
+
+# 随机端口 HTTP 服务
 sock = socket.socket()
 sock.bind(("127.0.0.1", 0))
 port = sock.getsockname()[1]
@@ -51,7 +56,7 @@ thr.start()
 
 url = f"http://127.0.0.1:{port}/"
 
-# Verify server up
+# 等服务器就绪
 import urllib.request
 for _ in range(30):
     try:
@@ -70,10 +75,9 @@ w = webview.create_window("安全验证 (腾讯云)", url,
                           width=440, height=420, resizable=False, on_top=True)
 w.events.closed += on_closed
 
-# Tick until done or timeout
 def tick():
     tick.c += 1
-    if done[0] or tick.c > 480:  # 120s
+    if done[0] or tick.c > 480:
         w.destroy()
 tick.c = 0
 

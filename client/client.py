@@ -1241,33 +1241,64 @@ class LoginWindow(QWidget):
 def launch_captcha_webkit(parent=None):
     """弹出腾讯云验证码 —— 独立子进程运行，QTimer 非阻塞轮询结果
     Mac: WKWebView (captcha_webkit.py)
-    Win: Edge WebView2 (captcha_win.py)
+    Win: Edge WebView2 (captcha_win.py) / 编译后 captcha_helper.exe
     """
     import os, platform, tempfile
     from urllib.parse import unquote
     from PySide6.QtCore import QTimer, QEventLoop
     
     is_mac = platform.system() == "Darwin"
-    script_name = "captcha_webkit.py" if is_mac else "captcha_win.py"
-    result_file = "/tmp/captcha_result.txt" if is_mac else os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
+    frozen = getattr(sys, 'frozen', False)
     
-    script_path = os.path.join(os.path.dirname(__file__), script_name)
-    if not os.path.exists(script_path) and getattr(sys, 'frozen', False):
-        script_path = os.path.join(os.path.dirname(sys.executable), script_name)
-    if not os.path.exists(script_path):
-        QMessageBox.critical(parent, "错误", f"验证码内核文件缺失 ({script_name})")
-        return {"ticket": "", "randstr": ""}
+    if is_mac:
+        script_name = "captcha_webkit.py"
+        result_file = "/tmp/captcha_result.txt"
+    else:
+        # Win: 编译后优先用 captcha_helper.exe，否则用脚本
+        script_name = "captcha_win.py"
+        result_file = os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
+    
+    # 找到可执行文件/脚本
+    base_dir = os.path.dirname(__file__)
+    if is_mac or not frozen:
+        # Mac 或 非编译 Python → 用脚本
+        script_path = os.path.join(base_dir, script_name)
+        if not os.path.exists(script_path) and frozen:
+            script_path = os.path.join(os.path.dirname(sys.executable), script_name)
+        if not os.path.exists(script_path):
+            QMessageBox.critical(parent, "错误", f"验证码内核文件缺失 ({script_name})")
+            return {"ticket": "", "randstr": ""}
+    else:
+        # Win 编译版 → 优先找 captcha_helper.exe
+        script_path = None
+        helper_paths = [
+            os.path.join(base_dir, "captcha_helper.exe"),                 # Nuitka onefile 解压
+            os.path.join(os.path.dirname(sys.executable), "captcha_helper.exe"),  # 同目录
+        ]
+        for hp in helper_paths:
+            if os.path.exists(hp):
+                script_path = hp
+                break
+        if not script_path:
+            QMessageBox.critical(parent, "错误", "验证码组件缺失 (captcha_helper.exe)\n请重新下载安装包。")
+            return {"ticket": "", "randstr": ""}
     
     if os.path.exists(result_file):
         os.remove(result_file)
     
     result = {"ticket": "", "randstr": ""}
     
-    # 启子进程 — 用当前 Python（pywebview 已安装在系统 Python）
+    # 启子进程
     import subprocess
     py_bin = sys.executable
-    proc = subprocess.Popen([py_bin, script_path],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if frozen and not is_mac and script_path:
+        # Win 编译版：直接运行 captcha_helper.exe
+        proc = subprocess.Popen([script_path],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        # Mac 或开发模式
+        proc = subprocess.Popen([py_bin, script_path],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     
     # QTimer 非阻塞轮询
     loop = QEventLoop()

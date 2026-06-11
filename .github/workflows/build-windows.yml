@@ -16,9 +16,19 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
-      - run: pip install PySide6 requests watchdog nuitka
+      - run: pip install PySide6 requests watchdog nuitka pywebview
 
-      - name: 编译
+      - name: 编译验证码助手
+        shell: cmd
+        run: |
+          python -m nuitka --standalone --onefile --windows-console-mode=disable ^
+            --output-dir=dist ^
+            --product-name="LOL验证码" ^
+            --assume-yes-for-downloads ^
+            --output-filename=captcha_helper.exe ^
+            client\captcha_win.py
+
+      - name: 编译主程序
         shell: cmd
         run: |
           python -m nuitka --standalone --onefile --windows-console-mode=disable ^
@@ -27,6 +37,7 @@ jobs:
             --file-version="1.0.0" ^
             --windows-icon-from-ico=client\icon.ico ^
             --assume-yes-for-downloads ^
+            --include-data-files=dist\captcha_helper.exe=./captcha_helper.exe ^
             client\client.py
 
       - uses: actions/upload-artifact@v4
