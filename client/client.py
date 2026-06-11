@@ -1877,8 +1877,8 @@ class MainWindow(QWidget):
         common_paths = []
         if sys.platform == "darwin":
             common_paths = [
+                os.path.expanduser("~/Library/Application Support/League of Legends/Replays"),
                 os.path.expanduser("~/Documents/League of Legends/Replays"),
-                os.path.expanduser("~/Documents/League of Legends/Replays/"),
             ]
         elif sys.platform == "win32":
             common_paths = [
@@ -2442,23 +2442,24 @@ class MainWindow(QWidget):
 
 
             def play_replay(fn, meta, main_win):
-                """Mac: 下载到桌面用 Finder 打开；Win: 直接调用 LeagueClient.exe"""
+                """Mac: open -a 交给 LeagueClient；Win: LeagueClient.exe"""
                 if not hasattr(main_win, 'lol_path') or not main_win.lol_path:
                     QMessageBox.warning(dialog, "提示", "请先在主界面设置LOL客户端目录")
                     return
                 if sys.platform == "darwin":
-                    # Mac: 下载到桌面，Reveal in Finder，用户拖入 LOL 客户端
-                    dest = os.path.join(os.path.expanduser("~/Desktop"), fn)
+                    # Mac: open -a "League of Legends.app" file.rofl
+                    dest = os.path.join(os.path.expanduser("~/Downloads"), fn)
                     ok, _ = ServerAPI.download_file(fn, main_win.token, dest)
                     if not ok:
                         QMessageBox.warning(dialog, "失败", "下载文件失败")
                         return
+                    import subprocess
                     try:
-                        subprocess.Popen(["open", "-R", dest])
+                        subprocess.Popen(["open", "-a", main_win.lol_path, dest])
                         QMessageBox.information(
-                            dialog, "回放文件已下载",
-                            f"文件已保存到桌面：\n{dest}\n\n"
-                            "请前往桌面将文件拖入 LOL 客户端窗口即可播放。"
+                            dialog, "回放已发送",
+                            f"已通知 LOL 客户端打开回放：\n{dest}\n\n"
+                            "如未自动播放，将文件拖入 LOL 客户端窗口即可。"
                         )
                     except Exception as e:
                         QMessageBox.warning(dialog, "失败", str(e))
