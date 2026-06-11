@@ -1286,10 +1286,10 @@ def launch_captcha_webkit(parent=None):
     # Local event loop that processes Qt events while waiting (max 120s)
     loop = QEventLoop()
     QTimer.singleShot(120000, loop.quit)
-    # Stop timer when user clicks close on captcha window
+    
+    proc_ended = [False]
     def on_proc_finished():
-        timer.stop()
-        done_flag[0] = True
+        proc_ended[0] = True
         loop.quit()
     proc.finished.connect(on_proc_finished)
     
@@ -1299,6 +1299,10 @@ def launch_captcha_webkit(parent=None):
             break
     
     timer.stop()
+    # One last check if process ended
+    if proc_ended[0] and not done_flag[0]:
+        check()
+    
     if not proc.waitForFinished(5000):
         proc.kill()
     try:
@@ -1306,7 +1310,11 @@ def launch_captcha_webkit(parent=None):
     except:
         pass
     
-    if not result.get("ticket"):
+    if result.get("ticket"):
+        pass  # success - already have ticket
+    elif proc_ended[0]:
+        pass  # user closed window, no need to warn
+    else:
         QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
     
     return result
