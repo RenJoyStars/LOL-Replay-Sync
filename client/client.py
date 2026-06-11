@@ -1231,8 +1231,8 @@ class LoginWindow(QWidget):
 
 
 
-def launch_captcha_webkit(parent=None):
-    """启动 macOS 原生 WebKit 验证码窗口（使用 Tencent CAPTCHA）"""
+def _launch_captcha_webkit(parent=None):
+    """macOS: 用原生 WebKit 弹窗打开腾讯验证码（子进程方式）"""
     import os, subprocess
     from urllib.parse import unquote
     from PySide6.QtCore import QProcess, QTimer, QEventLoop
@@ -1259,18 +1259,18 @@ def launch_captcha_webkit(parent=None):
         QMessageBox.critical(parent, "错误", "启动验证码窗口失败")
         return result
     
-    # Non-blocking poll using QTimer + local event loop
     def check():
         if os.path.exists("/tmp/captcha_result.txt"):
             try:
                 with open("/tmp/captcha_result.txt") as f:
                     data = f.read().strip()
                 if data:
+                    from urllib.parse import unquote as uq
                     parts = data.split("&")
                     for p in parts:
                         if "=" in p:
                             k, v = p.split("=", 1)
-                            v = unquote(v) if "%" in v else v
+                            v = uq(v) if "%" in v else v
                             if k == "ticket": result["ticket"] = v
                             elif k == "randstr": result["randstr"] = v
             except:
@@ -1283,7 +1283,6 @@ def launch_captcha_webkit(parent=None):
     timer.timeout.connect(check)
     timer.start(300)
     
-    # Local event loop that processes Qt events while waiting (max 120s)
     loop = QEventLoop()
     QTimer.singleShot(120000, loop.quit)
     
@@ -1293,13 +1292,11 @@ def launch_captcha_webkit(parent=None):
         loop.quit()
     proc.finished.connect(on_proc_finished)
     
-    # Poll in local event loop
     while not done_flag[0]:
         if not loop.processEvents():
             break
     
     timer.stop()
-    # One last check if process ended
     if proc_ended[0] and not done_flag[0]:
         check()
     
@@ -1311,13 +1308,108 @@ def launch_captcha_webkit(parent=None):
         pass
     
     if result.get("ticket"):
-        pass  # success - already have ticket
+        pass
     elif proc_ended[0]:
-        pass  # user closed window, no need to warn
+        pass
     else:
         QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
     
     return result
+
+
+def _launch_captcha_browser(parent=None):
+    """Windows/Linux: 用系统浏览器打开本地 HTTP 验证页"""
+    import os, socket, threading, webbrowser, tempfile, time
+    from urllib.parse import unquote
+    from http.server import HTTPServer, BaseHTTPRequestHandler
+    
+    result_file = os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
+    if os.path.exists(result_file):
+        os.remove(result_file)
+    
+    result = {"ticket": "", "randstr": ""}
+    
+    HTML_PAGE = """<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<script src="https://t.captcha.qq.com/TCaptcha.js"></script>
+</head>
+<body style="display:flex;justify-content:center;align-items:center;
+height:100vh;flex-direction:column;background:#f5f7fa;margin:0;
+font-family:-apple-system,Microsoft YaHei,sans-serif">
+<div style="color:#2d3748;font-size:14px;margin-bottom:16px">请完成安全验证</div>
+<div id="cap"></div>
+<script>
+try {new TencentCaptcha("197104175",function(r){
+if(r.ret===0){window.location.href="/done?ticket="+encodeURIComponent(r.ticket)+
+"&randstr="+encodeURIComponent(r.randstr)}else{document.getElementById("cap").innerHTML='<p style="color:#e53e3e">验证取消,请关闭页面重试</p>'}
+}).show()}catch(e){document.getElementById("cap").innerHTML='<p style="color:#e53e3e">加载失败:'+e.message+'</p>'}
+</script></body></html>"""
+    
+    done = [False]
+    
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/done?"):
+                qs = self.path[6:]
+                self.send_response(200)
+                self.end_headers()
+                body = "<html><body style='text-align:center;padding-top:60px;font-family:sans-serif'><h2 style='color:#48bb78'>验证成功!</h2><p>请关闭此页面返回应用</p></body></html>"
+                self.wfile.write(body.encode("utf-8"))
+                with open(result_file, "w") as f:
+                    f.write(qs)
+                done[0] = True
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(HTML_PAGE.encode("utf-8"))
+        def log_message(self, *a): pass
+    
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    
+    httpd = HTTPServer(("127.0.0.1", port), Handler)
+    httpd.timeout = 1
+    thr = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thr.start()
+    
+    url = "http://127.0.0.1:%d/" % port
+    webbrowser.open(url)
+    
+    start = time.time()
+    while not done[0] and time.time() - start < 120:
+        httpd.handle_request()
+    
+    httpd.shutdown()
+    
+    if os.path.exists(result_file):
+        with open(result_file) as f:
+            data = f.read().strip()
+        if data:
+            parts = data.split("&")
+            for p in parts:
+                if "=" in p:
+                    k, v = p.split("=", 1)
+                    try:
+                        v = unquote(v) if "%" in v else v
+                    except:
+                        pass
+                    if k == "ticket": result["ticket"] = v
+                    elif k == "randstr": result["randstr"] = v
+        os.remove(result_file)
+    
+    return result
+
+
+def launch_captcha_webkit(parent=None):
+    """平台感知的验证码入口：Mac 用原生 WebKit，Windows/Linux 用浏览器"""
+    import platform
+    if platform.system() == "Darwin":
+        return _launch_captcha_webkit(parent)
+    else:
+        return _launch_captcha_browser(parent)
 
 
 def rich_tooltip(widget, text):
