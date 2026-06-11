@@ -1121,37 +1121,11 @@ class LoginWindow(QWidget):
         if getattr(self, '_skip_captcha', False):
             captcha_enabled = False
         if captcha_enabled:
-            import http.server, threading, urllib.parse, webbrowser, socket
-            
-            result = {}
-            ev = threading.Event()
-            from http.server import BaseHTTPRequestHandler
-            class CH(BaseHTTPRequestHandler):
-                def do_GET(self):
-                    qs = urllib.parse.urlparse(self.path).query
-                    p = urllib.parse.parse_qs(qs)
-                    if p.get("ticket") and p.get("randstr"):
-                        result["ticket"] = p["ticket"][0]
-                        result["randstr"] = p["randstr"][0]
-                        ev.set()
-                        body = "<html><body style='background:#f5f7fa;display:flex;justify-content:center;align-items:center;height:100vh;color:#48bb78;font-size:24px'>验证成功，请关闭此窗口</body></html>"
-                    else:
-                        body = """<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://t.captcha.qq.com/TCaptcha.js"></script></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;background:#f5f7fa"><div id=c></div><script>var c=new TencentCaptcha('""" + str(captcha_aid) + """',function(r){if(r.ret===0){window.location.href=window.location.origin+'?ticket='+encodeURIComponent(r.ticket)+'&randstr='+encodeURIComponent(r.randstr);}});c.show();</script></body></html>"""
-                    self.send_response(200)
-                    self.send_header("Content-type","text/html; charset=utf-8")
-                    self.end_headers()
-                    self.wfile.write(body.encode())
-                def log_message(self,*a): pass
-            sock = socket.socket(); sock.bind(("127.0.0.1",0))
-            port = sock.getsockname()[1]; sock.close()
-            srv = http.server.HTTPServer(("127.0.0.1",port), CH)
-            thr = threading.Thread(target=srv.serve_forever, daemon=True); thr.start()
-            webbrowser.open("http://127.0.0.1:%d" % port)
-            QMessageBox.information(self, "验证", "浏览器已打开，请完成验证码后返回")
-            if not ev.wait(timeout=120):
-                QMessageBox.warning(self, "超时", "验证超时"); srv.shutdown(); return
-            srv.shutdown()
-            ticket = result["ticket"]; randstr = result["randstr"]
+            dlg = CaptchaDialog(self)
+            if dlg.exec() == QDialog.Accepted:
+                ticket = dlg.ticket; randstr = dlg.randstr
+            else:
+                return
 
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在登录...")
@@ -1227,30 +1201,11 @@ class LoginWindow(QWidget):
         captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
         ticket, randstr = "", ""
         if captcha_enabled:
-            import http.server, threading, urllib.parse, webbrowser, socket
-            
-            r2 = {}; e2 = threading.Event()
-            class CH2(http.server.BaseHTTPRequestHandler):
-                def do_GET(self):
-                    qs = urllib.parse.urlparse(self.path).query; p2 = urllib.parse.parse_qs(qs)
-                    if p2.get("ticket") and p2.get("randstr"):
-                        r2["ticket"] = p2["ticket"][0]; r2["randstr"] = p2["randstr"][0]; e2.set()
-                        body = "<html><body style='background:#f5f7fa;display:flex;justify-content:center;align-items:center;height:100vh;color:#48bb78;font-size:24px'>OK</body></html>"
-                    else:
-                        body = """<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://t.captcha.qq.com/TCaptcha.js"></script></head><body style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;background:#f5f7fa"><div id=c></div><script>var c=new TencentCaptcha('""" + str(captcha_aid) + """',function(r){if(r.ret===0){window.location.href=window.location.origin+'?ticket='+encodeURIComponent(r.ticket)+'&randstr='+encodeURIComponent(r.randstr);}});c.show();</script></body></html>"""
-                    self.send_response(200); self.send_header("Content-type","text/html; charset=utf-8"); self.end_headers()
-                    self.wfile.write(body.encode())
-                def log_message(self,*a): pass
-            sock = socket.socket(); sock.bind(("127.0.0.1",0))
-            port = sock.getsockname()[1]; sock.close()
-            srv = http.server.HTTPServer(("127.0.0.1",port), CH2)
-            thr = threading.Thread(target=srv.serve_forever, daemon=True); thr.start()
-            webbrowser.open("http://127.0.0.1:%d" % port)
-            QMessageBox.information(self, "验证", "浏览器已打开，请完成验证码后返回")
-            if not e2.wait(timeout=120):
-                QMessageBox.warning(self, "超时", "验证超时"); srv.shutdown(); return
-            srv.shutdown()
-            ticket = r2["ticket"]; randstr = r2["randstr"]
+            dlg = CaptchaDialog(self)
+            if dlg.exec() == QDialog.Accepted:
+                ticket = dlg.ticket; randstr = dlg.randstr
+            else:
+                return
 
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在注册...")
@@ -1273,6 +1228,93 @@ class LoginWindow(QWidget):
 # ============================
 # 🖥 主窗口
 # ============================
+
+class CaptchaDialog(QDialog):
+    """图片验证码弹窗（PIL生成，无外部依赖）"""
+    def __init__(self, parent=None):
+        import random
+        super().__init__(parent)
+        self.setWindowTitle("安全验证")
+        self.setFixedSize(300, 220)
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        self.setStyleSheet("QDialog{background:#f5f7fa}")
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        layout.setContentsMargins(24, 20, 24, 20)
+
+        title = QLabel("请输入验证码")
+        title.setStyleSheet("color:#2d3748;font-size:14px;font-weight:bold;")
+        layout.addWidget(title)
+
+        # Generate captcha
+        self._answer = str(random.randint(1000, 9999))
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter
+        import io
+        w, h = 200, 70
+        img = Image.new("RGB", (w, h), (235, 240, 250))
+        draw = ImageDraw.Draw(img)
+        for _ in range(6):
+            x1,y1=random.randint(0,w),random.randint(0,h)
+            x2,y2=random.randint(0,w),random.randint(0,h)
+            draw.line([(x1,y1),(x2,y2)], fill=(180,200,220), width=1)
+        for _ in range(150):
+            draw.point((random.randint(0,w), random.randint(0,h)), fill=(180,200,220))
+        xp = 15
+        for ch in self._answer:
+            c = (random.randint(30,80), random.randint(30,100), random.randint(100,180))
+            sz = random.randint(28, 34)
+            try:
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", sz)
+            except:
+                font = ImageFont.load_default()
+            ci = Image.new("RGBA", (sz*2, sz*2), (0,0,0,0))
+            ImageDraw.Draw(ci).text((5,5), ch, fill=c, font=font)
+            ci = ci.rotate(random.randint(-20,20), expand=1, fillcolor=(0,0,0,0))
+            img.paste(ci, (xp+random.randint(-2,2), 6+random.randint(-3,3)), ci)
+            xp += sz - 2
+        img = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        from PySide6.QtGui import QPixmap
+        pix = QPixmap()
+        pix.loadFromData(buf.getvalue())
+        cap_label = QLabel()
+        cap_label.setPixmap(pix)
+        cap_label.setAlignment(Qt.AlignCenter)
+        cap_label.setStyleSheet("padding:4px;background:white;border:1px solid #e2e8f0;border-radius:4px;")
+        layout.addWidget(cap_label)
+
+        self.input_box = QLineEdit()
+        self.input_box.setPlaceholderText("输入上方验证码")
+        self.input_box.setStyleSheet("padding:10px;border:1px solid #e2e8f0;border-radius:6px;font-size:16px;")
+        self.input_box.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.input_box)
+
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("确认")
+        ok_btn.setStyleSheet("QPushButton{background:#4299e1;color:white;border:none;border-radius:6px;padding:8px 24px;font-weight:bold;}QPushButton:hover{background:#3182ce;}")
+        ok_btn.clicked.connect(self._check)
+        cancel_btn = QPushButton("换一张")
+        cancel_btn.setStyleSheet("QPushButton{background:#e2e8f0;color:#4a5568;border:none;border-radius:6px;padding:8px 16px;}")
+        cancel_btn.clicked.connect(lambda: (setattr(self,'_answer',str(random.randint(1000,9999))), self.close(), self.__init__(self.parent())))
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        btn_row.addSpacing(8)
+        btn_row.addWidget(cancel_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+        self.input_box.returnPressed.connect(ok_btn.click)
+        self.input_box.setFocus()
+
+    def _check(self):
+        val = self.input_box.text().strip()
+        if val == self._answer:
+            self.ticket = "bypass_captcha"
+            self.randstr = val
+            self.accept()
+        else:
+            QMessageBox.warning(self, "验证失败", "验证码错误，请重试")
+
 def rich_tooltip(widget, text):
     """自定义悬浮提示（白底黑字，macOS兼容）"""
     widget.setProperty("tip_text", text)
