@@ -938,14 +938,14 @@ class LoginWindow(QWidget):
             }
         """)
         # 密码框聚焦时同步改变眼睛图标边框
-        self.password_input.focusInEvent = lambda event: (
-            setattr(self.eye_btn, 'focused', True),
-            self.eye_btn.setStyleSheet(self.eye_btn.styleSheet().replace(
-                'border: 2px solid #cbd5e0;', 'border: 2px solid #4299e1;'
-            ).replace(
-                'background-color: #edf2f7;', 'background-color: white;'
-            )) if True else None
-        ) if False else None
+        orig_focus_in = self.password_input.focusInEvent
+        def _on_pw_focus(event):
+            self.eye_btn.setStyleSheet(self.eye_btn.styleSheet()
+                .replace('border: 2px solid #cbd5e0;', 'border: 2px solid #4299e1;')
+                .replace('background-color: #edf2f7;', 'background-color: white;'))
+            if orig_focus_in:
+                orig_focus_in(event)
+        self.password_input.focusInEvent = _on_pw_focus
         self.eye_btn.pressed.connect(lambda: self.password_input.setEchoMode(QLineEdit.Normal))
         self.eye_btn.released.connect(lambda: self.password_input.setEchoMode(QLineEdit.Password))
 
@@ -1211,8 +1211,6 @@ class LoginWindow(QWidget):
                 self.status_label.setText("验证取消")
                 return
 
-        self.status_label.setStyleSheet("color: blue;")
-        self.status_label.setText("正在注册...")
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在注册...")
         self.login_btn.setEnabled(False)
@@ -2309,7 +2307,7 @@ class MainWindow(QWidget):
                         iwl.addWidget(il)
                         row2.addWidget(iw)
 
-                    # 英雄 + 按钮横排
+                    # 英雄信息
                     champs = [champ_cn(p['champion']) for p in meta['players'] if p.get('champion')]
                     if champs:
                         half = len(champs) // 2
@@ -2317,7 +2315,6 @@ class MainWindow(QWidget):
                         red = " ".join(champs[half:])
                         hr = QHBoxLayout()
                         hr.setSpacing(8)
-                        # 左列：蓝方+红方两行
                         cv = QVBoxLayout()
                         cv.setSpacing(3)
                         bl = QLabel(f'<span style="color:#3182ce;font-weight:bold">蓝方: {blue}</span>')
@@ -2330,81 +2327,41 @@ class MainWindow(QWidget):
                         cv.addWidget(rl)
                         hr.addLayout(cv)
                         hr.addStretch(1)
-                        # 按钮（垂直居中，占两行高度）
-                        btn_w = QWidget()
-                        btn_w.setStyleSheet("background: transparent;")
-                        btn_l = QHBoxLayout(btn_w)
-                        btn_l.setSpacing(4)
-                        btn_l.setContentsMargins(0, 0, 0, 0)
-                        for lb, bg, hov in [("另存为","#48bb78","#38a169"),("删除","#f56565","#e53e3e"),("重命名","#4299e1","#3182ce"),("回放","#805ad5","#6b46c1")]:
-                            btn = QPushButton(lb)
-                            if lb == "回放":
-                                btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}QPushButton:disabled{{background:#a0aec0;color:#e2e8f0;}}")
-                            else:
-                                btn.setStyleSheet(f"QPushButton{{background:{bg};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hov};}}")
-                            btn.setFixedHeight(26)
-                            cb = [lambda *a,fn=fname: save_file(fn,self.token,dialog),
-                                  lambda *a,fn=fname,r=row: del_file(fn,r,self.token,dialog),
-                                  lambda *a,fn=fname: rename_file(fn,self.token,dialog),
-                                  lambda *a,fn=fname,m=meta: play_replay(fn,m,self)][["另存为","删除","重命名","回放"].index(lb)]
-                            btn.clicked.connect(cb)
-                            if lb == "回放":
-                                if meta is None or not meta.get("game_version"):
-                                    btn.setEnabled(False)
-                                    rich_tooltip(btn, "需先下载查看版本信息")
-                                elif hasattr(self, 'lol_version') and self.lol_version:
-                                    fv = meta["game_version"]
-                                    lv = self.lol_version
-                                    major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
-                                    if not major_match:
-                                        btn.setEnabled(False)
-                                        rich_tooltip(btn, f"版本不匹配")
-                                    else:
-                                        rich_tooltip(btn, f"使用 LOL {lv} 播放")
-                                else:
-                                    btn.setEnabled(False)
-                                    rich_tooltip(btn, "请先设置LOL客户端目录")
-                                    btn.setToolTip("请先设置LOL客户端目录")
-                            btn_l.addWidget(btn)
-                        hr.addWidget(btn_w, alignment=Qt.AlignVCenter)
                         row2.addLayout(hr)
                 elif not local_ex:
                     il = QLabel("需下载后查看详情")
                     il.setStyleSheet("color: #718096; font-size: 12px; font-style: italic;")
                     row2.addWidget(il)
 
-                # 对所有文件都显示按钮
+                # 按钮行（统一创建，所有文件都显示）
                 hr_btns = QHBoxLayout()
                 hr_btns.setSpacing(4)
                 hr_btns.addStretch(1)
-                for label, color, hover, cb_func in [
-                    ("另存为", "#48bb78", "#38a169", 
-                     lambda *a, fn=fname: save_file(fn, self.token, dialog)),
-                    ("删除", "#f56565", "#e53e3e",
-                     lambda *a, fn=fname, r=row: del_file(fn, r, self.token, dialog)),
-                    ("重命名", "#4299e1", "#3182ce",
-                     lambda *a, fn=fname: rename_file(fn, self.token, dialog)),
-                    ("回放", "#805ad5", "#6b46c1",
-                     lambda *a, fn=fname, m=meta: play_replay(fn, m, self)),
+                for label, color, hover in [
+                    ("另存为", "#48bb78", "#38a169"),
+                    ("删除", "#f56565", "#e53e3e"),
+                    ("重命名", "#4299e1", "#3182ce"),
+                    ("回放", "#805ad5", "#6b46c1"),
                 ]:
                     btn = QPushButton(label)
                     if label == "回放":
-                        btn.setStyleSheet(f"""QPushButton {{ background-color: {color}; color: white; border: none;
-                        border-radius: 4px; padding: 2px 10px; font-size: 11px; }}
-                        QPushButton:hover {{ background-color: {hover}; }}
-                        QPushButton:disabled {{ background-color: #a0aec0; color: #e2e8f0; }}""")
+                        btn.setStyleSheet(f"QPushButton{{background:{color};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hover};}}QPushButton:disabled{{background:#a0aec0;color:#e2e8f0;}}")
                     else:
-                        btn.setStyleSheet(f"""QPushButton {{ background-color: {color}; color: white; border: none;
-                        border-radius: 4px; padding: 2px 10px; font-size: 11px; }}
-                        QPushButton:hover {{ background-color: {hover}; }}""")
+                        btn.setStyleSheet(f"QPushButton{{background:{color};color:white;border:none;border-radius:4px;padding:3px 12px;font-size:11px;}}QPushButton:hover{{background:{hover};}}")
                     btn.setFixedHeight(26)
-                    btn.clicked.connect(cb_func)
-                    if label == "回放":
+                    if label == "另存为":
+                        btn.clicked.connect(lambda *a, fn=fname: save_file(fn, self.token, dialog))
+                    elif label == "删除":
+                        btn.clicked.connect(lambda *a, fn=fname, r=row: del_file(fn, r, self.token, dialog))
+                    elif label == "重命名":
+                        btn.clicked.connect(lambda *a, fn=fname: rename_file(fn, self.token, dialog))
+                    elif label == "回放":
+                        btn.clicked.connect(lambda *a, fn=fname, m=meta: play_replay(fn, m, self))
                         if meta is None or not meta.get("game_version"):
                             btn.setEnabled(False)
                             rich_tooltip(btn, "需先下载查看版本信息")
                         elif hasattr(self, 'lol_version') and self.lol_version:
-                            fv = meta["game_version"]
+                            fv = meta.get("game_version", "")
                             lv = self.lol_version
                             major_match = fv.split(".")[:2] == lv.split(".")[:2] if "." in fv and "." in lv else False
                             if not major_match:
@@ -2417,9 +2374,7 @@ class MainWindow(QWidget):
                             rich_tooltip(btn, "请先设置LOL客户端目录")
                     hr_btns.addWidget(btn)
                     hr_btns.addSpacing(3)
-                # 底部按钮：仅当元数据区域未显示按钮时才添加
-                if meta is None:
-                    row2.addLayout(hr_btns)
+                row2.addLayout(hr_btns)
 
                 wl.addLayout(row2)
 
@@ -2549,7 +2504,7 @@ class MainWindow(QWidget):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "错误", str(e))
 def show_login():
-    """显示登录窗口"""
+    """显示登录窗口（返回窗口引用防止 GC 回收）"""
     login_win = LoginWindow()
 
     def on_login_success(token, username):
@@ -2560,6 +2515,7 @@ def show_login():
 
     login_win.login_success.connect(on_login_success)
     login_win.show()
+    return login_win  # 返回引用防止 Python GC 回收
 
 
 def main():
@@ -2567,11 +2523,9 @@ def main():
     pix = QPixmap()
     pix.loadFromData(base64.b64decode(APP_ICON_B64))
     app.setWindowIcon(QIcon(pix))
-    # 全局 ToolTip 样式（白底黑字），在 app 创建后立即设置
-    app.setStyleSheet("* { font-family: system-ui; }")
+    # 全局样式（Fusion 风格 + ToolTip + hover）
     app.setStyle("Fusion")
-    # 单独设置 QToolTip 样式
-    app.setStyleSheet(app.styleSheet() + """
+    app.setStyleSheet("""
         QToolTip {
             background-color: #ffffff;
             color: #2d3748;
@@ -2590,7 +2544,7 @@ def main():
     MainWindow._on_logout = show_login
 
     # 总是显示登录窗口（支持自动填充和自动登录）
-    show_login()
+    _login_win = show_login()  # 保持引用防止 GC 回收
 
     sys.exit(app.exec())
 
