@@ -1,6 +1,6 @@
-#!/opt/homebrew/bin/python3.13
-"""验证码：本地 HTTP 服务 + 打开默认浏览器 → 回调捕获 → 写结果文件"""
-import json, os, socket, webbrowser, threading
+#!/usr/bin/env python3
+"""验证码：pywebview 独立子进程 — 原生 WebView + 本地 HTTP 服务 → 结果文件"""
+import json, os, socket, sys, threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
@@ -21,17 +21,15 @@ HTML = f"""<!DOCTYPE html>
 <style>*{{margin:0;padding:0;box-sizing:border-box}}
 body{{height:100vh;display:flex;justify-content:center;align-items:center;
 flex-direction:column;background:#f5f7fa;font-family:-apple-system,sans-serif}}
-#msg{{color:#2d3748;font-size:15px;margin-bottom:16px}}
-</style></head><body>
+#msg{{color:#2d3748;font-size:15px;margin-bottom:16px}}</style></head><body>
 <div id="msg">加载中...</div><div id="cap"></div>
 <script>{tcaptcha_js}</script>
 <script>
 try{{
     var c=new TencentCaptcha({json.dumps(AID)},function(r){{
         if(r.ret===0){{
-            window.location.href=
-                "/done?ticket="+encodeURIComponent(r.ticket)+
-                "&randstr="+encodeURIComponent(r.randstr)
+            fetch("/done?ticket="+encodeURIComponent(r.ticket)+
+                "&randstr="+encodeURIComponent(r.randstr))
         }}else{{
             document.getElementById("cap").innerHTML=
                 "<p style='color:#e53e3e;margin-top:40px'>验证未通过</p>"
@@ -65,21 +63,14 @@ class Handler(BaseHTTPRequestHandler):
             with open(RESULT_FILE, "w") as f:
                 f.write(f"ticket={ticket}&randstr={randstr}")
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", "text/plain")
             self.end_headers()
-            self.wfile.write(b"<html><body style='font-family:sans-serif;text-align:center;padding-top:100px'>"
-                             b"<h2 style='color:#48bb78'>验证完成</h2><p>请关闭此页面</p>"
-                             b"<script>window.close()</script></body></html>")
-            # 延迟退出避免浏览器连接断开
-            threading.Thread(target=self._delayed_exit, daemon=True).start()
+            self.wfile.write(b"OK")
+            # 延迟退出，确保响应已发送
+            threading.Thread(target=lambda: (__import__("time").sleep(0.3), os._exit(0)), daemon=True).start()
         else:
             self.send_response(404)
             self.end_headers()
-
-    def _delayed_exit(self):
-        import time
-        time.sleep(0.5)
-        os._exit(0)
 
     def log_message(self, fmt, *args):
         pass
@@ -88,21 +79,22 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     port = find_free_port()
     url = f"http://127.0.0.1:{port}/"
-    
+
     server = HTTPServer(("127.0.0.1", port), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
-    
-    # 打开默认浏览器
-    webbrowser.open(url)
-    
-    # 阻塞直到服务器退出（由 /done 回调触发）
-    try:
-        while server:
-            import time
-            time.sleep(0.5)
-    except KeyboardInterrupt:
-        pass
+
+    import webview
+    window = webview.create_window("安全验证 (腾讯云)", url, width=460, height=460,
+                                    resizable=False, on_top=True)
+
+    # pywebview 关闭时退出
+    def on_closed():
+        os._exit(0)
+
+    window.events.closed += on_closed
+
+    webview.start(gui="cocoa" if sys.platform == "darwin" else None)
 
 
 if __name__ == "__main__":

@@ -1253,15 +1253,8 @@ def launch_captcha_webkit(parent=None):
     
     result = {"ticket": "", "randstr": ""}
     
-    # 启子进程
-    import subprocess
-    # Mac 优先用 Homebrew Python（有 pyobjc+WebKit），Win 用 sys.executable
+    # 启子进程 — 用当前 Python（pywebview 已安装在系统 Python）
     py_bin = sys.executable
-    if is_mac:
-        for candidate in ["/opt/homebrew/bin/python3.13", "/opt/homebrew/bin/python3"]:
-            if os.path.exists(candidate):
-                py_bin = candidate
-                break
     proc = subprocess.Popen([py_bin, script_path],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
