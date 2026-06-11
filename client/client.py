@@ -1715,10 +1715,10 @@ class MainWindow(QWidget):
         lol_tip = QLabel("英雄联盟客户端默认安装位置：")
         lol_tip.setStyleSheet("color: #a0aec0; font-size: 11px; background: transparent; padding-left: 2px;")
         lol_layout.addWidget(lol_tip)
-        lol_tip2 = QLabel("Windows: C:\\Riot Games\\League of Legends （找 LeagueClient.exe）")
+        lol_tip2 = QLabel("Windows: C:\\Program Files\\WeGameApps\\英雄联盟 (国服) 或 C:\\Riot Games\\League of Legends (国际服)")
         lol_tip2.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
         lol_layout.addWidget(lol_tip2)
-        lol_tip3 = QLabel("Mac(国服/国际服): /Applications/League of Legends.app")
+        lol_tip3 = QLabel("Mac: /Applications/League of Legends.app 下找 LeagueClient.app")
         lol_tip3.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
         lol_layout.addWidget(lol_tip3)
 
@@ -2045,12 +2045,14 @@ class MainWindow(QWidget):
                     else:
                         self.add_log(f"  [{idx}/{total}] 上传 {fname} ({size_str})")
                     self.start_btn.setText(f"同步中 {idx}/{total}")
+                    QApplication.processEvents()
                     ok, result = ServerAPI.upload_file(fpath, self.token)
                     if ok:
                         self.add_log(f"  ✅ [{idx}/{total}] 同步成功: {fname}")
                     else:
                         err = result.get('error', str(result)) if isinstance(result, dict) else str(result)
                         self.add_log(f"  ❌ [{idx}/{total}] 同步失败: {fname} - {err}")
+                    QApplication.processEvents()
 
                 self.add_log("本地文件同步完成")
             else:
