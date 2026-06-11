@@ -1702,7 +1702,7 @@ class MainWindow(QWidget):
         lol_layout.addLayout(lol_row)
 
         self.lol_ver_label = QLabel("游戏版本: 未设置")
-        self.lol_ver_label.setStyleSheet("color: #718096; font-size: 11px; padding-left: 2px; background: transparent;")
+        self.lol_ver_label.setStyleSheet("color: #d69e2e; font-size: 11px; padding-left: 2px; background: transparent;")
         lol_layout.addWidget(self.lol_ver_label)
 
         # LOL 客户端路径提示
