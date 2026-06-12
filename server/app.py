@@ -92,10 +92,17 @@ def init_db():
             filename TEXT NOT NULL,
             original_path TEXT,
             file_size INTEGER DEFAULT 0,
+            metadata TEXT,
             uploaded_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
     """)
+    # 迁移：给旧表加 metadata 列
+    try:
+        db.execute("ALTER TABLE files ADD COLUMN metadata TEXT")
+        db.commit()
+    except:
+        pass
     conn.commit()
     conn.close()
 
@@ -309,11 +316,14 @@ def upload_file():
     file.save(save_path)
     file_size = os.path.getsize(save_path)
 
+    # 接收客户端传的元数据（JSON 文本）
+    metadata = request.form.get("metadata", None)
+
     # 记录到数据库
     conn = get_db()
     conn.execute(
-        "INSERT INTO files (user_id, filename, original_path, file_size) VALUES (?, ?, ?, ?)",
-        (user["id"], file.filename, save_path, file_size)
+        "INSERT INTO files (user_id, filename, original_path, file_size, metadata) VALUES (?, ?, ?, ?, ?)",
+        (user["id"], file.filename, save_path, file_size, metadata)
     )
     conn.commit()
     conn.close()
@@ -338,7 +348,7 @@ def list_files():
 
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, filename, file_size, uploaded_at FROM files WHERE user_id = ? ORDER BY uploaded_at DESC",
+        "SELECT id, filename, file_size, uploaded_at, metadata FROM files WHERE user_id = ? ORDER BY uploaded_at DESC",
         (user["id"],)
     ).fetchall()
     conn.close()
@@ -370,6 +380,29 @@ def download_file(filename):
     from flask import send_file
     return send_file(file_path, as_attachment=True, download_name=filename)
 
+
+@app.route('/files/<filename>/metadata', methods=['POST'])
+def update_file_metadata(filename):
+    """更新文件元数据（客户端解析后回传）"""
+    auth = request.headers.get('Authorization', '')
+    token = auth.replace('Bearer ', '')
+    user = verify_token(token)
+    if not user:
+        return jsonify({'error': '请先登录'}), 401
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': '请提供元数据'}), 400
+
+    metadata = json.dumps(data)
+    conn = get_db()
+    conn.execute(
+        'UPDATE files SET metadata = ? WHERE filename = ? AND user_id = ?',
+        (metadata, filename, user['id'])
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '元数据已更新'})
 
 @app.route('/rename/<old_filename>', methods=['POST'])
 def rename_file(old_filename):

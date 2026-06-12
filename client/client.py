@@ -75,6 +75,68 @@ def save_config(config):
     """保存设置到本地"""
     CONFIG_FILE.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
 
+# 元数据本地缓存（加速云端管理）
+METADATA_CACHE_FILE = CONFIG_DIR / "metadata_cache.json"
+_metadata_cache = {}
+
+def load_metadata_cache():
+    global _metadata_cache
+    if METADATA_CACHE_FILE.exists():
+        try:
+            _metadata_cache = json.loads(METADATA_CACHE_FILE.read_text(encoding="utf-8"))
+        except:
+            _metadata_cache = {}
+    return _metadata_cache
+
+def save_metadata_cache():
+    METADATA_CACHE_FILE.write_text(json.dumps(_metadata_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def get_metadata_for_file(filename, file_size, uploaded_info, token, local_dir=None):
+    """获取文件的元数据。优先级：服务器缓存 → 本地缓存 → 实时解析。
+    解析后自动回写缓存（本地+服务器）。
+    local_dir: 可选的本地目录，不传则从 config 读取 watch_folder
+    """
+    global _metadata_cache
+    load_metadata_cache()
+    
+    # 1. 服务器已缓存
+    if uploaded_info and uploaded_info.get("metadata"):
+        try:
+            meta = json.loads(uploaded_info["metadata"])
+            # 同步到本地缓存
+            _metadata_cache[filename] = meta
+            save_metadata_cache()
+            return meta
+        except:
+            pass
+    
+    # 2. 本地缓存
+    if filename in _metadata_cache:
+        return _metadata_cache[filename]
+    
+    # 3. 实时解析（需本地文件存在）
+    if local_dir is None:
+        local_dir = load_config().get("watch_folder", "")
+    if local_dir:
+        local_path = os.path.join(local_dir, filename)
+        if os.path.exists(local_path):
+            meta = parse_rolf_metadata(local_path)
+            if meta:
+                # 写入本地缓存
+                _metadata_cache[filename] = meta
+                save_metadata_cache()
+                # 异步推送到服务器
+                import threading
+                def _push():
+                    try:
+                        ServerAPI.update_metadata(filename, meta, token)
+                    except:
+                        pass
+                threading.Thread(target=_push, daemon=True).start()
+                return meta
+    
+    return None
+
 
 # ============================
 # .rolf 文件解析
@@ -849,18 +911,22 @@ class ServerAPI:
             return False, f"网络错误：{str(e)}"
 
     @staticmethod
-    def upload_file(filepath, token):
-        """上传单个文件"""
+    def upload_file(filepath, token, metadata=None):
+        """上传单个文件，可附带元数据 JSON"""
         try:
             filename = os.path.basename(filepath)
             with open(filepath, "rb") as f:
                 files = {"file": (filename, f)}
+                form_data = {}
+                if metadata:
+                    form_data["metadata"] = json.dumps(metadata, ensure_ascii=False)
                 headers = {"Authorization": f"Bearer {token}"}
                 r = requests.post(
                     f"{SERVER_URL}/upload",
                     files=files,
+                    data=form_data,
                     headers=headers,
-                    timeout=60  # 大文件可能需要更长时间
+                    timeout=120  # 大文件可能需要更长时间
                 )
             data = r.json()
             return r.status_code == 200, data
@@ -879,6 +945,21 @@ class ServerAPI:
             return []
         except:
             return []
+
+    @staticmethod
+    def update_metadata(filename, metadata_dict, token):
+        """将解析后的元数据推送到服务器缓存"""
+        try:
+            headers = {"Authorization": f"Bearer {token}"}
+            r = requests.post(
+                f"{SERVER_URL}/files/{filename}/metadata",
+                json=metadata_dict,
+                headers=headers,
+                timeout=10
+            )
+            return r.status_code == 200
+        except:
+            return False
 
     @staticmethod
     def download_file(filename, token, save_path):
@@ -2219,9 +2300,13 @@ class MainWindow(QWidget):
                         self.add_log(f"  [{idx}/{total}] 上传 {fname} ({size_str})")
                     self.start_btn.setText(f"同步中 {idx}/{total}")
                     QApplication.processEvents()
-                    ok, result = ServerAPI.upload_file(fpath, self.token)
+                    ok, result = ServerAPI.upload_file(fpath, self.token, metadata=meta)
                     if ok:
                         self.add_log(f"  [OK] [{idx}/{total}] 同步成功: {fname}")
+                        # 写入本地缓存
+                        if meta:
+                            _metadata_cache[fname] = meta
+                            save_metadata_cache()
                     else:
                         err = result.get('error', str(result)) if isinstance(result, dict) else str(result)
                         self.add_log(f"  [失败] [{idx}/{total}] 同步失败: {fname} - {err}")
@@ -2490,9 +2575,9 @@ class MainWindow(QWidget):
             filter_bar.setSpacing(8)
             all_modes = set()
             all_vers = set()
+            current_dir = self.current_folder if hasattr(self, 'current_folder') else None
             for fn in fnames:
-                fp = os.path.join(self.current_folder, fn) if hasattr(self, 'current_folder') and self.current_folder else ""
-                m = parse_rolf_metadata(fp) if fp and os.path.exists(fp) else None
+                m = get_metadata_for_file(fn, finfo.get(fn, {}).get("file_size", 0), finfo.get(fn, {}), self.token, local_dir=current_dir)
                 if m:
                     gv = m.get("game_version", "")
                     gm = m.get("game_mode", "")
@@ -2556,7 +2641,8 @@ class MainWindow(QWidget):
             for row, fname in enumerate(fnames):
                 local_path = os.path.join(self.current_folder, fname) if hasattr(self, 'current_folder') and self.current_folder else ""
                 local_ex = os.path.exists(local_path) if local_path else False
-                meta = parse_rolf_metadata(local_path) if local_path and os.path.exists(local_path) else None
+                current_dir = self.current_folder if hasattr(self, 'current_folder') else None
+                meta = get_metadata_for_file(fname, finfo.get(fname, {}).get("file_size", 0), finfo.get(fname, {}), self.token, local_dir=current_dir)
 
                 w = QWidget()
                 w.setStyleSheet("background: transparent;")
