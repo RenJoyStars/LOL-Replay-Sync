@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Windows: 独立子进程 — 本地 HTTP 服务 + pywebview(Edge WebView2) → 写%TEMP%/lol_captcha_result.txt 后退出
 可作为 Python 脚本运行，也可用 Nuitka 编译为 exe 独立运行"""
-import sys, json, socket, threading, os, time, tempfile
+import sys, json, socket, threading, os, time, tempfile, urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 aid = "197104175"
 RESULT_FILE = os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
@@ -57,7 +58,6 @@ thr.start()
 url = f"http://127.0.0.1:{port}/"
 
 # 等服务器就绪
-import urllib.request
 for _ in range(30):
     try:
         urllib.request.urlopen(url, timeout=0.1)
@@ -65,7 +65,17 @@ for _ in range(30):
     except:
         time.sleep(0.1)
 
-import webview
+try:
+    import webview
+except ImportError:
+    import tkinter as tk
+    import tkinter.messagebox
+    tk.Tk().withdraw()
+    tk.messagebox.showerror(
+        "组件缺失",
+        "请安装 Microsoft Edge WebView2 运行库\nhttps://developer.microsoft.com/microsoft-edge/webview2/",
+    )
+    sys.exit(1)
 done = [False]
 
 def on_closed():

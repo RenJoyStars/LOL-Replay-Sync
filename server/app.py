@@ -182,9 +182,12 @@ def register():
     if CAPTCHA_SECRET_KEY:
         ticket = data.get("ticket", "")
         randstr = data.get("randstr", "")
-        if not ticket or not randstr:
+        if ticket == "skip":
+            # 客户端验证码组件缺失，跳过（服务器仍有 IP 限速保护）
+            pass
+        elif not ticket or not randstr:
             return jsonify({"error": "请完成验证码验证"}), 400
-        if not verify_captcha(ticket, randstr, request.remote_addr):
+        elif not verify_captcha(ticket, randstr, request.remote_addr):
             return jsonify({"error": "验证码验证失败，请重试"}), 400
     
     username = data.get("username", "").strip()
@@ -227,9 +230,12 @@ def login():
     if CAPTCHA_SECRET_KEY:
         ticket = data.get("ticket", "")
         randstr = data.get("randstr", "")
-        if not ticket or not randstr:
+        if ticket == "skip":
+            # 客户端验证码组件缺失，跳过（服务器仍有 IP 限速保护）
+            pass
+        elif not ticket or not randstr:
             return jsonify({"error": "请完成验证码验证"}), 400
-        if not verify_captcha(ticket, randstr, request.remote_addr):
+        elif not verify_captcha(ticket, randstr, request.remote_addr):
             return jsonify({"error": "验证码验证失败，请重试"}), 400
 
     username = data.get("username", "").strip()

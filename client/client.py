@@ -1340,7 +1340,10 @@ class LoginWindow(QWidget):
             captcha_enabled = False
         if captcha_enabled:
             cap_result = launch_captcha_webkit(self)
-            if cap_result.get("ticket"):
+            if cap_result.get("ticket") == "skip":
+                # 验证码组件缺失，跳过验证
+                pass
+            elif cap_result.get("ticket"):
                 ticket = cap_result["ticket"]; randstr = cap_result.get("randstr", "")
             else:
                 self.status_label.setStyleSheet("color: red;")
@@ -1417,12 +1420,14 @@ class LoginWindow(QWidget):
             return
 
         # 验证码验证
-        # 验证码验证
         captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
         ticket, randstr = "", ""
         if captcha_enabled:
             cap_result = launch_captcha_webkit(self)
-            if cap_result.get("ticket"):
+            if cap_result.get("ticket") == "skip":
+                # 验证码组件缺失，跳过验证
+                pass
+            elif cap_result.get("ticket"):
                 ticket = cap_result["ticket"]; randstr = cap_result.get("randstr", "")
             else:
                 self.status_label.setStyleSheet("color: red;")
@@ -1488,7 +1493,11 @@ def launch_captcha_webkit(parent=None):
                 script_path = hp
                 break
         if not script_path:
-            QMessageBox.critical(parent, "错误", "验证码组件缺失 (captcha_helper.exe)\n请重新下载安装包。")
+            reply = QMessageBox.warning(parent, "验证码不可用",
+                "未找到验证码组件 (captcha_helper.exe)\n\n是否跳过验证码继续登录？\n(服务器已有防暴力破解保护)",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+            if reply == QMessageBox.Yes:
+                return {"ticket": "skip", "randstr": ""}
             return {"ticket": "", "randstr": ""}
     
     if os.path.exists(result_file):

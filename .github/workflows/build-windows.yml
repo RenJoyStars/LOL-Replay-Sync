@@ -44,4 +44,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: 英雄联盟对局文件助手-Windows
-          path: dist/client.exe
+          path: |
+            dist/client.exe
+            dist/captcha_helper.exe
