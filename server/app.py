@@ -18,6 +18,8 @@ import os
 import hashlib
 import secrets
 import sqlite3
+import random
+import uuid
 from datetime import datetime, timedelta
 from collections import defaultdict
 import time
@@ -39,18 +41,28 @@ PORT = 5050                        # 服务器端口
 app = Flask(__name__)
 CORS(app)
 
-# ===== 腾讯云验证码配置 =====
-# 从环境变量读取密钥，避免明文写入代码
-CAPTCHA_AID = "197104175"
-CAPTCHA_SECRET_KEY = os.environ.get("CAPTCHA_SECRET_KEY", "")
+# ===== 内置数学验证码 =====
+# 无需腾讯云验证码，IP 限速（8次/分钟）+ 数学题即可防暴力
+CAPTCHA_CACHE = {}  # {captcha_id: {"answer": int, "expires": timestamp}}
 
-def verify_captcha(ticket, randstr, user_ip):
-    """验证验证码——客户端已验证通过则跳过服务端校验"""
-    if not ticket or not randstr:
-        return False
-    # 客户端已完成腾讯云验证码，直接信任结果
-    # 配合 IP 限流（每分钟 8 次），防暴力已足够
-    return True  # 允许客户端跨域访问
+def _generate_math_captcha():
+    """生成一道随机数学题，返回 (question_text, answer)"""
+    t = random.randint(0, 2)
+    if t == 0:  # 加法
+        a, b = random.randint(10, 99), random.randint(10, 99)
+        q = f"{a} + {b} = ?"
+        ans = a + b
+    elif t == 1:  # 减法（保证正数）
+        a, b = random.randint(10, 99), random.randint(10, 99)
+        if a < b:
+            a, b = b, a
+        q = f"{a} - {b} = ?"
+        ans = a - b
+    else:  # 乘法（简单数）
+        a, b = random.randint(2, 9), random.randint(2, 9)
+        q = f"{a} × {b} = ?"
+        ans = a * b
+    return q, ans
 
 # 确保上传目录存在
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -158,10 +170,13 @@ def check_rate_limit(ip):
     return 0
 
 
-@app.route("/captcha/config", methods=["GET"])
-def captcha_config():
-    """返回验证码配置（仅返回 AppID，不返回密钥）"""
-    return jsonify({"aid": CAPTCHA_AID, "enabled": bool(CAPTCHA_SECRET_KEY)})
+@app.route("/captcha/question", methods=["GET"])
+def captcha_question():
+    """生成一道数学验证码题"""
+    question, answer = _generate_math_captcha()
+    captcha_id = str(uuid.uuid4())
+    CAPTCHA_CACHE[captcha_id] = {"answer": answer, "expires": time.time() + 120}
+    return jsonify({"question": question, "id": captcha_id})
 
 @app.route("/")
 def index():
@@ -186,16 +201,18 @@ def register():
         return jsonify({"error": "请提供用户名和密码"}), 400
     
     # 验证码验证
-    if CAPTCHA_SECRET_KEY:
-        ticket = data.get("ticket", "")
-        randstr = data.get("randstr", "")
-        if ticket == "skip":
-            # 客户端验证码组件缺失，跳过（服务器仍有 IP 限速保护）
-            pass
-        elif not ticket or not randstr:
-            return jsonify({"error": "请完成验证码验证"}), 400
-        elif not verify_captcha(ticket, randstr, request.remote_addr):
-            return jsonify({"error": "验证码验证失败，请重试"}), 400
+    # 验证码验证：支持传入 captcha_id + captcha_answer，非必填（自动登录跳过）
+    captcha_id = data.get("captcha_id", "")
+    captcha_answer = data.get("captcha_answer", "")
+    if captcha_id:
+        cached = CAPTCHA_CACHE.pop(captcha_id, None)
+        if not cached or time.time() > cached["expires"]:
+            return jsonify({"error": "验证码已过期，请刷新重试"}), 400
+        try:
+            if int(captcha_answer) != cached["answer"]:
+                return jsonify({"error": "验证码答案错误"}), 400
+        except ValueError:
+            return jsonify({"error": "验证码答案无效"}), 400
     
     username = data.get("username", "").strip()
     password = data.get("password", "")
@@ -233,17 +250,18 @@ def login():
     if not data:
         return jsonify({"error": "请提供用户名和密码"}), 400
 
-    # 验证码验证
-    if CAPTCHA_SECRET_KEY:
-        ticket = data.get("ticket", "")
-        randstr = data.get("randstr", "")
-        if ticket == "skip":
-            # 客户端验证码组件缺失，跳过（服务器仍有 IP 限速保护）
-            pass
-        elif not ticket or not randstr:
-            return jsonify({"error": "请完成验证码验证"}), 400
-        elif not verify_captcha(ticket, randstr, request.remote_addr):
-            return jsonify({"error": "验证码验证失败，请重试"}), 400
+    # 验证码验证：支持传入 captcha_id + captcha_answer，非必填（自动登录跳过）
+    captcha_id = data.get("captcha_id", "")
+    captcha_answer = data.get("captcha_answer", "")
+    if captcha_id:
+        cached = CAPTCHA_CACHE.pop(captcha_id, None)
+        if not cached or time.time() > cached["expires"]:
+            return jsonify({"error": "验证码已过期，请刷新重试"}), 400
+        try:
+            if int(captcha_answer) != cached["answer"]:
+                return jsonify({"error": "验证码答案错误"}), 400
+        except ValueError:
+            return jsonify({"error": "验证码答案无效"}), 400
 
     username = data.get("username", "").strip()
     password = data.get("password", "")

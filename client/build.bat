@@ -24,44 +24,30 @@ goto end
 :full
 echo.
 echo === 安装 Python 依赖 ===
-pip install PySide6 requests watchdog nuitka pywebview -q
+pip install PySide6 requests watchdog nuitka -q
 echo ✅ 依赖安装完成
 goto compile
 
 :compile
 echo.
-echo === 编译验证码助手 ===
-cd /d %~dp0
-python -m nuitka --standalone --onefile --windows-console-mode=disable ^
-    --output-dir=dist ^
-    --product-name="LOL验证码" ^
-    --assume-yes-for-downloads ^
-    --output-filename=captcha_helper.exe ^
-    client\captcha_win.py
-if exist dist\captcha_helper.exe (
-    echo ✅ 验证码助手编译成功
-) else (
-    echo ⚠️ 验证码助手编译失败，继续主程序编译...
-)
-
-echo.
 echo === 编译主程序（约5-10分钟）===
+cd /d %~dp0
 python -m nuitka --standalone --onefile --windows-console-mode=disable ^
     --enable-plugin=pyside6 --output-dir=dist ^
     --product-name="英雄联盟对局文件助手" ^
     --file-version="1.0.0" ^
+    --windows-icon-from-ico=icon.ico ^
     --assume-yes-for-downloads ^
-    --include-data-files=dist\captcha_helper.exe=./captcha_helper.exe ^
     client.py
 echo.
 if exist dist\client.exe (
     echo ✅ 编译成功！dist\client.exe
     dir /-C dist\client.exe | find "client.exe"
 ) else (
-    echo ❌ 编译失败，需安装 Visual C++ 生成工具：
-    echo https://visualstudio.microsoft.com/visual-cpp-build-tools/
+    echo ❌ 编译失败，请检查上方错误信息
 )
 pause
 goto end
 
 :end
+cd /d %~dp0

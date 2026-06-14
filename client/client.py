@@ -858,17 +858,19 @@ class ServerAPI:
             return False
 
     @staticmethod
-    def get_captcha_config():
-        """获取服务器验证码配置"""
+    def get_captcha_question():
+        """从服务器获取一道数学验证码题"""
         try:
-            r = requests.get(f"{SERVER_URL}/captcha/config", timeout=5)
-            data = r.json()
-            return data.get("enabled", False), data.get("aid", "")
+            r = requests.get(f"{SERVER_URL}/captcha/question", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                return data.get("question", ""), data.get("id", "")
         except:
-            return False, ""
+            pass
+        return "", ""
 
     @staticmethod
-    def register(username, password, ticket="", randstr=""):
+    def register(username, password, captcha_id="", captcha_answer=""):
         """注册新用户"""
         try:
             payload = {"username": username, "password": password}
@@ -888,13 +890,13 @@ class ServerAPI:
             return False, f"网络错误：{str(e)}"
 
     @staticmethod
-    def login(username, password, ticket="", randstr=""):
+    def login(username, password, captcha_id="", captcha_answer=""):
         """用户登录"""
         try:
             payload = {"username": username, "password": password}
-            if ticket:
-                payload["ticket"] = ticket
-                payload["randstr"] = randstr
+            if captcha_id:
+                payload["captcha_id"] = captcha_id
+                payload["captcha_answer"] = captcha_answer
             r = requests.post(
                 f"{SERVER_URL}/login",
                 json=payload,
@@ -1398,6 +1400,91 @@ class LoginWindow(QWidget):
             self.status_label.setStyleSheet("color: red;")
             self.status_label.setText(f"无法连接服务器\n请检查地址：{SERVER_URL}")
 
+    def show_math_captcha(self):
+        """弹出内置数学验证码对话框，返回 (captcha_id, captcha_answer) 或 None(取消)"""
+        question, captcha_id = ServerAPI.get_captcha_question()
+        if not question:
+            # 服务器问题请求失败，允许跳过（IP 限速兜底）
+            return "skip", "skip"
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("验证码")
+        dialog.setFixedSize(300, 180)
+        dialog.setWindowFlags(dialog.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(12)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # 提示文字
+        hint = QLabel("请输入计算结果：")
+        hint.setStyleSheet("font-size: 13px; color: #666;")
+        hint.setAlignment(Qt.AlignCenter)
+        layout.addWidget(hint)
+        
+        # 题目
+        q_label = QLabel(question)
+        q_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #333; padding: 10px;")
+        q_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(q_label)
+        
+        # 输入框
+        answer_input = QLineEdit()
+        answer_input.setPlaceholderText("输入答案")
+        answer_input.setAlignment(Qt.AlignCenter)
+        answer_input.setStyleSheet("""
+            QLineEdit {
+                font-size: 20px; padding: 8px; border: 2px solid #4a90d9;
+                border-radius: 6px; min-height: 36px;
+            }
+        """)
+        layout.addWidget(answer_input)
+        
+        # 按钮
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("确认")
+        cancel_btn = QPushButton("取消")
+        for b in (ok_btn, cancel_btn):
+            b.setFixedHeight(32)
+            b.setCursor(Qt.PointingHandCursor)
+        ok_btn.setStyleSheet("""
+            QPushButton {
+                background: #4a90d9; color: white; font-size: 14px;
+                border-radius: 6px; padding: 0 20px;
+            }
+            QPushButton:hover { background: #357abd; }
+        """)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background: #e0e0e0; color: #333; font-size: 14px;
+                border-radius: 6px; padding: 0 20px;
+            }
+            QPushButton:hover { background: #ccc; }
+        """)
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        answer_input.setFocus()
+        answer_input.returnPressed.connect(ok_btn.click)
+        
+        result_id = [""]
+        result_answer = [""]
+        
+        def on_ok():
+            val = answer_input.text().strip()
+            if not val:
+                return
+            result_id[0] = captcha_id
+            result_answer[0] = val
+            dialog.accept()
+        ok_btn.clicked.connect(on_ok)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        if dialog.exec() == QDialog.Accepted:
+            return result_id[0], result_answer[0]
+        return None, None
+
     def do_login(self):
         """处理登录"""
         username = self.username_input.text().strip()
@@ -1413,23 +1500,15 @@ class LoginWindow(QWidget):
             self.status_label.setText("用户名和密码不能包含空格")
             return
 
-        # 验证码验证
-        captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
-        ticket, randstr = "", ""
-        # 自动登录跳过验证码
-        if getattr(self, '_skip_captcha', False):
-            captcha_enabled = False
-        if captcha_enabled:
-            cap_result = launch_captcha_webkit(self)
-            if cap_result.get("ticket") == "skip":
-                # 验证码组件缺失，跳过验证
-                pass
-            elif cap_result.get("ticket"):
-                ticket = cap_result["ticket"]; randstr = cap_result.get("randstr", "")
-            else:
+        # 验证码：自动登录跳过，手动登录弹出数学验证码
+        if not getattr(self, '_skip_captcha', False):
+            captcha_id, captcha_answer = self.show_math_captcha()
+            if captcha_id is None:
                 self.status_label.setStyleSheet("color: red;")
-                self.status_label.setText("验证取消")
+                self.status_label.setText("验证已取消")
                 return
+        else:
+            captcha_id, captcha_answer = "", ""
 
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在登录...")
@@ -1437,7 +1516,7 @@ class LoginWindow(QWidget):
         self.register_btn.setEnabled(False)
         QApplication.processEvents()
 
-        success, result = ServerAPI.login(username, password, ticket, randstr)
+        success, result = ServerAPI.login(username, password, captcha_id, captcha_answer)
         
         self.login_btn.setEnabled(True)
         self.register_btn.setEnabled(True)
@@ -1462,18 +1541,16 @@ class LoginWindow(QWidget):
             self.status_label.setText(f"{result}")
 
     def do_auto_login(self):
-        """自动登录（跳过验证码）"""
+        """自动登录（本地缓存有 token/password，跳过验证码）"""
         config = load_config()
         username = config.get("username", "")
         password = config.get("password", "")
         token = config.get("token", "")
         if username and password and token:
-            # 已有 token，直接进入主页
             self.login_success.emit(token, username)
         elif username and password:
             self.username_input.setText(username)
             self.password_input.setText(password)
-            # 自动登录，跳过验证码
             self._skip_captcha = True
             self.do_login()
         else:
@@ -1500,20 +1577,12 @@ class LoginWindow(QWidget):
             self.status_label.setText("密码至少6个字符")
             return
 
-        # 验证码验证
-        captcha_enabled, captcha_aid = ServerAPI.get_captcha_config()
-        ticket, randstr = "", ""
-        if captcha_enabled:
-            cap_result = launch_captcha_webkit(self)
-            if cap_result.get("ticket") == "skip":
-                # 验证码组件缺失，跳过验证
-                pass
-            elif cap_result.get("ticket"):
-                ticket = cap_result["ticket"]; randstr = cap_result.get("randstr", "")
-            else:
-                self.status_label.setStyleSheet("color: red;")
-                self.status_label.setText("验证取消")
-                return
+        # 数学验证码
+        captcha_id, captcha_answer = self.show_math_captcha()
+        if captcha_id is None:
+            self.status_label.setStyleSheet("color: red;")
+            self.status_label.setText("验证已取消")
+            return
 
         self.status_label.setStyleSheet("color: blue;")
         self.status_label.setText("正在注册...")
@@ -1521,7 +1590,7 @@ class LoginWindow(QWidget):
         self.register_btn.setEnabled(False)
         QApplication.processEvents()
 
-        success, message = ServerAPI.register(username, password, ticket, randstr)
+        success, message = ServerAPI.register(username, password, captcha_id, captcha_answer)
         
         self.login_btn.setEnabled(True)
         self.register_btn.setEnabled(True)
@@ -1532,123 +1601,8 @@ class LoginWindow(QWidget):
 
 
 
-def launch_captcha_webkit(parent=None):
-    """弹出腾讯云验证码 —— 独立子进程运行，QTimer 非阻塞轮询结果
-    Mac: WKWebView (captcha_webkit.py)
-    Win: Edge WebView2 (captcha_win.py) / 编译后 captcha_helper.exe
-    """
-    import os, platform, tempfile
-    from urllib.parse import unquote
-    from PySide6.QtCore import QTimer, QEventLoop
-    
-    is_mac = platform.system() == "Darwin"
-    frozen = getattr(sys, 'frozen', False)
-    
-    if is_mac:
-        script_name = "captcha_webkit.py"
-        result_file = "/tmp/captcha_result.txt"
-    else:
-        # Win: 编译后优先用 captcha_helper.exe，否则用脚本
-        script_name = "captcha_win.py"
-        result_file = os.path.join(tempfile.gettempdir(), "lol_captcha_result.txt")
-    
-    # 找到可执行文件/脚本
-    base_dir = os.path.dirname(__file__)
-    if is_mac or not frozen:
-        # Mac 或 非编译 Python → 用脚本
-        script_path = os.path.join(base_dir, script_name)
-        if not os.path.exists(script_path) and frozen:
-            script_path = os.path.join(os.path.dirname(sys.executable), script_name)
-        if not os.path.exists(script_path):
-            QMessageBox.critical(parent, "错误", f"验证码内核文件缺失 ({script_name})")
-            return {"ticket": "", "randstr": ""}
-    else:
-        # Win 编译版 → 优先找 captcha_helper.exe
-        script_path = None
-        helper_paths = [
-            os.path.join(base_dir, "captcha_helper.exe"),                 # Nuitka onefile 解压
-            os.path.join(os.path.dirname(sys.executable), "captcha_helper.exe"),  # 同目录
-        ]
-        for hp in helper_paths:
-            if os.path.exists(hp):
-                script_path = hp
-                break
-        if not script_path:
-            reply = QMessageBox.warning(parent, "验证码不可用",
-                "未找到验证码组件 (captcha_helper.exe)\n\n是否跳过验证码继续登录？\n(服务器已有防暴力破解保护)",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-            if reply == QMessageBox.Yes:
-                return {"ticket": "skip", "randstr": ""}
-            return {"ticket": "", "randstr": ""}
-    
-    if os.path.exists(result_file):
-        os.remove(result_file)
-    
-    result = {"ticket": "", "randstr": ""}
-    
-    # 启子进程
-    import subprocess
-    py_bin = sys.executable
-    if frozen and not is_mac and script_path:
-        # Win 编译版：直接运行 captcha_helper.exe
-        proc = subprocess.Popen([script_path],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    else:
-        # Mac 或开发模式
-        proc = subprocess.Popen([py_bin, script_path],
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    
-    # QTimer 非阻塞轮询
-    loop = QEventLoop()
-    elapsed = [0]
-    
-    def check():
-        elapsed[0] += 100
-        if os.path.exists(result_file):
-            try:
-                with open(result_file) as f:
-                    data = f.read().strip()
-                if data:
-                    parts = data.split("&")
-                    for p in parts:
-                        if "=" in p:
-                            k, v = p.split("=", 1)
-                            v = unquote(v) if "%" in v else v
-                            if k == "ticket": result["ticket"] = v
-                            elif k == "randstr": result["randstr"] = v
-            except:
-                pass
-            loop.quit()
-        elif elapsed[0] >= 120000:  # 2 分钟超时
-            loop.quit()
-        elif proc.poll() is not None and elapsed[0] > 2000:
-            # 进程退出但没结果文件 → 用户关了窗口
-            loop.quit()
-    
-    timer = QTimer()
-    timer.timeout.connect(check)
-    timer.start(100)
-    
-    loop.exec()
-    
-    timer.stop()
-    # 捕获子进程错误
-    if proc.poll() is not None and proc.returncode != 0:
-        err = proc.stderr.read().decode(errors='replace')[:500]
-        if err.strip():
-            QMessageBox.critical(parent, "验证码错误", f"子进程异常退出 (code={proc.returncode}):\n{err}")
-    if proc.poll() is None:
-        proc.kill()
-        proc.wait()
-    try:
-        os.remove(result_file)
-    except:
-        pass
-    
-    if not result.get("ticket") and elapsed[0] >= 120000:
-        QMessageBox.warning(parent, "超时", "验证码验证超时，请重试")
-    
-    return result
+# ===== 内置数学验证码（替代了旧的腾讯云验证码）=====
+# 见 LoginWindow.show_math_captcha()
 
 
 def rich_tooltip(widget, text):
